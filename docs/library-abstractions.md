@@ -6,6 +6,11 @@ It is an abstraction reference; the [usage guide](using-ndp-library.md) follows 
 complete example, and the [PyTorch design](pytorch-integration.md) describes proposed
 bindings. Python bindings and real FPGA/simulator backends are not implemented.
 
+Headers and implementations are physically separated into `common`, `l1`, `l2`,
+and `l3` directories under `include/ndp` and `src`. Shared metadata contracts live
+in common; they do not hold runtime or request state. See the
+[README directory layout](../README.md#directory-layout).
+
 ## 1. Overall model
 
 An application owns one `Session`, persistent weights, request-specific caches, and
@@ -274,8 +279,8 @@ integration. Replacing it is an L1 task as long as the backend contract remains 
 
 ## 6. Private runtime objects and resource lifetime
 
-These types are implementation details in [session.cpp](../src/session.cpp), except
-L3 KVState in [llm.cpp](../src/llm.cpp).
+These types are implementation details in [session.cpp](../src/l2/session.cpp), except
+L3 KVState in [llm.cpp](../src/l3/llm.cpp).
 Applications and Python bindings should not expose or construct them directly.
 
 | Internal type | Responsibility | Ownership / lifecycle |

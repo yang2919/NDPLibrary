@@ -1,6 +1,6 @@
 // Compose L3 request caches, rotary embeddings, and causal attention from public L2 APIs.
 #pragma once
-#include "ndp/session.hpp"
+#include "ndp/l2/session.hpp"
 
 namespace ndp {
 namespace detail {

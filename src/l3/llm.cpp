@@ -1,7 +1,7 @@
 // Implement L3 cache policy and decoder math using only the public generic Session API.
-#include "ndp/llm.hpp"
+#include "ndp/l3/llm.hpp"
 
-#include "ndp/fp16.hpp"
+#include "ndp/common/fp16.hpp"
 
 #include <cmath>
 #include <utility>

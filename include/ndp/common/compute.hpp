@@ -1,6 +1,6 @@
 // Describe logical operations, execution options, attributes, and backend kernel requirements.
 #pragma once
-#include "ndp/layout.hpp"
+#include "ndp/common/layout.hpp"
 
 namespace ndp {
 enum class OpKind {

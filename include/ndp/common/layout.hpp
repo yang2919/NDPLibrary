@@ -1,6 +1,6 @@
 // Describe physical tensor layouts and the functional test packing format.
 #pragma once
-#include "ndp/types.hpp"
+#include "ndp/common/types.hpp"
 
 namespace ndp {
 // TestTile4x4 is a functional test format, NOT an AiM/FPGA memory mapping.

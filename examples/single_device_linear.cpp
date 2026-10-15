@@ -1,6 +1,6 @@
 // Run PNM and PIM linear operations with shared prepared weights and report results and memory use.
-#include "ndp/fp16.hpp"
-#include "ndp/session.hpp"
+#include "ndp/common/fp16.hpp"
+#include "ndp/l2/session.hpp"
 
 #include <array>
 #include <cstring>

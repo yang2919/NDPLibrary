@@ -1,6 +1,6 @@
 // Validate backend kernel plans against operation semantics and available device resources.
 #pragma once
-#include "ndp/backend/backend.hpp"
+#include "ndp/l1/backend.hpp"
 
 namespace ndp::detail {
 // Pure planning: validates semantics and the backend contract; allocates no buffers.

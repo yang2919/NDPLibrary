@@ -5,11 +5,12 @@ project(ndp_library LANGUAGES CXX)
 find_package(Threads REQUIRED)
 
 add_library(ndp
-  src/session.cpp
-  src/functional_backend.cpp
-  src/compute.cpp
-  src/fp16.cpp
-  src/functional_ops.cpp
+  src/common/compute.cpp
+  src/common/fp16.cpp
+  src/common/tensor_metadata.cpp
+  src/l1/functional_backend.cpp
+  src/l1/functional_ops.cpp
+  src/l2/session.cpp
 )
 target_include_directories(ndp PUBLIC include)
 target_compile_features(ndp PUBLIC cxx_std_20)
@@ -17,7 +18,7 @@ target_link_libraries(ndp PRIVATE Threads::Threads)
 target_compile_options(ndp PRIVATE -Wall -Wextra -Wpedantic)
 
 # L3 depends on L2; the core library has no cache/model dependency.
-add_library(ndp_llm src/llm.cpp src/decoder.cpp)
+add_library(ndp_llm src/l3/llm.cpp src/l3/decoder.cpp)
 target_link_libraries(ndp_llm PUBLIC ndp)
 target_compile_options(ndp_llm PRIVATE -Wall -Wextra -Wpedantic)
 

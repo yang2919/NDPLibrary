@@ -1,6 +1,6 @@
 // Declare host kernels for generic tensor operations.
 #pragma once
-#include "ndp/compute.hpp"
+#include "ndp/common/compute.hpp"
 
 #include <span>
 

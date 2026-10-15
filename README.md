@@ -16,13 +16,37 @@ and a decoder walkthrough matched to the C++ source.
 
 | Layer | CMake target / interface | Responsibility |
 |---|---|---|
-| L3: model composition | `ndp_llm`, `ndp/llm.hpp`, `ndp/decoder.hpp` | KV cache policy, RoPE, causal attention, decoder composition |
-| L2: generic runtime | `ndp`, `ndp/session.hpp` | Tensor operations, memory, layout preparation, submission and completion |
-| L1: backend adapter | `ndp/backend/backend.hpp` | Allocation, transfers, layout conversion, kernel execution |
+| L3: model composition | `ndp_llm`, `ndp/l3/llm.hpp`, `ndp/l3/decoder.hpp` | KV cache policy, RoPE, causal attention, decoder composition |
+| L2: generic runtime | `ndp`, `ndp/l2/session.hpp` | Tensor operations, memory, layout preparation, submission and completion |
+| L1: backend adapter | `ndp/l1/backend.hpp` | Allocation, transfers, layout conversion, kernel execution |
 
 `ndp_llm` depends on `ndp`. The core runtime has no KV cache, token-position, RoPE,
 or attention operation. L3 implements these using public L2 APIs; a matrix/vector
 application can link only `ndp`.
+
+## Directory layout
+
+Public headers and implementations use the same layer boundaries:
+
+```text
+include/ndp/                 src/
+├── common/                 ├── common/
+│   types, FP16, layouts,    │   FP16 conversion and metadata validation
+│   operation descriptions  │
+├── l1/                     ├── l1/
+│   backend.hpp             │   functional backend and host kernels
+├── l2/                     ├── l2/
+│   session.hpp, event.hpp  │   session runtime and private planner
+└── l3/                     └── l3/
+    llm.hpp, decoder.hpp        cache, RoPE, attention, decoder composition
+```
+
+`common` contains shared data/operation contracts rather than runtime or model state.
+L1 depends on common contracts, L2 uses the backend interface, and L3 uses public L2
+APIs. Private implementation headers stay under `src`. Namespaces and CMake targets
+remain `ndp` / `ndp_llm`; public include paths now contain their layer, for example
+`#include "ndp/l2/session.hpp"` and `#include "ndp/l3/llm.hpp"`.
+The former flat include paths have no forwarding headers.
 
 ## Build and run
 
@@ -73,9 +97,9 @@ add_executable(decoder_app decoder.cpp)
 target_link_libraries(decoder_app PRIVATE ndp_llm)
 ```
 
-Include `ndp/session.hpp` for L2, `ndp/llm.hpp` for cache/RoPE/attention, or
-`ndp/decoder.hpp` for decoder containers and the optional block helper.
-`ndp/fp16.hpp` provides host binary16 conversion helpers.
+Include `ndp/l2/session.hpp` for L2, `ndp/l3/llm.hpp` for cache/RoPE/attention, or
+`ndp/l3/decoder.hpp` for decoder containers and the optional block helper.
+`ndp/common/fp16.hpp` provides host binary16 conversion helpers.
 
 ## Main API objects
 

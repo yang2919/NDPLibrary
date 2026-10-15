@@ -1,8 +1,8 @@
 // Build deterministic FP16 inputs, weights, and RoPE tables for decoder examples and tests.
 #pragma once
 
-#include "ndp/decoder.hpp"
-#include "ndp/fp16.hpp"
+#include "ndp/l3/decoder.hpp"
+#include "ndp/common/fp16.hpp"
 
 #include <cmath>
 #include <stdexcept>

@@ -1,6 +1,6 @@
 // Expose completion status and waiting for asynchronous session work.
 #pragma once
-#include "ndp/types.hpp"
+#include "ndp/common/types.hpp"
 
 #include <memory>
 

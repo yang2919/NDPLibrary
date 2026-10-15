@@ -1,5 +1,5 @@
 // Validate operation shapes and attributes and infer logical output tensor descriptions.
-#include "ndp/compute.hpp"
+#include "ndp/common/compute.hpp"
 
 #include <cmath>
 

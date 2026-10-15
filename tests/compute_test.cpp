@@ -1,5 +1,5 @@
 // Verify FP16 conversion, compute accuracy, prepared weights, and workspace reuse.
-#include "ndp/fp16.hpp"
+#include "ndp/common/fp16.hpp"
 #include "test_support.hpp"
 
 #include <array>

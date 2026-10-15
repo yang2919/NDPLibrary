@@ -1,5 +1,5 @@
 // Verify KV cache ordering, capacity, partial failures, reset recovery, and causal GQA.
-#include "ndp/llm.hpp"
+#include "ndp/l3/llm.hpp"
 #include "test_support.hpp"
 
 #include <atomic>

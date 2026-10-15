@@ -8,13 +8,22 @@ APIs. This is an API-breaking change; it does not remove asynchronous execution.
 
 | Target | Headers | Responsibility |
 |---|---|---|
-| `ndp` | `ndp/session.hpp`, compute/layout/types/event, backend | Generic runtime and functional backend |
-| `ndp_llm` | `ndp/llm.hpp`, `ndp/decoder.hpp` | KVCache, RoPE, causal attention, decoder composition |
+| `ndp` | `ndp/l2/session.hpp`, compute/layout/types/event, backend | Generic runtime and functional backend |
+| `ndp_llm` | `ndp/l3/llm.hpp`, `ndp/l3/decoder.hpp` | KVCache, RoPE, causal attention, decoder composition |
 
 `ndp_llm` links `ndp`. Core-only applications and buffer tests link only `ndp`.
 RMSNorm, softmax, and SiLU remain stateless numerical primitives; they do not know
 about models, requests, positions, or cache state. PreparedWeight remains an optional
 layout-preparation helper. `linear` also accepts an ordinary Tensor.
+
+## Physical source organization
+
+Headers and sources are grouped under `common/`, `l1/`, `l2/`, and `l3/` in
+`include/ndp/` and `src/`. Shared types, layout/operation contracts, and FP16 helpers
+live in common. The backend interface and functional kernels live in L1; Session,
+Event, and the private planner belong to L2; model compositions belong to L3.
+The namespace and target names are unchanged. Update consumers to the new include
+paths; old flat header paths are not retained as compatibility wrappers.
 
 ## Explicit mutable storage and immutable values
 

@@ -1,7 +1,7 @@
 // Provide an in-memory backend for transfer, layout, workspace, and compute correctness tests.
 #include "functional_ops.hpp"
-#include "ndp/backend/backend.hpp"
-#include "ndp/fp16.hpp"
+#include "ndp/l1/backend.hpp"
+#include "ndp/common/fp16.hpp"
 
 #include <algorithm>
 #include <cmath>

@@ -1,7 +1,7 @@
 // Expose single-device sessions, tensors, mutable device buffers, prepared weights, and transfers.
 #pragma once
-#include "ndp/backend/backend.hpp"
-#include "ndp/event.hpp"
+#include "ndp/l1/backend.hpp"
+#include "ndp/l2/event.hpp"
 
 namespace ndp {
 namespace detail {

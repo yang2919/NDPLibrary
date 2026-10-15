@@ -1,6 +1,6 @@
 // Verify generic buffer mutation, immutable snapshots, validation, and failure recovery without L3.
-#include "ndp/fp16.hpp"
-#include "ndp/session.hpp"
+#include "ndp/common/fp16.hpp"
+#include "ndp/l2/session.hpp"
 
 #include <cstring>
 #include <iostream>

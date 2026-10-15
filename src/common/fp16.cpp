@@ -1,5 +1,5 @@
 // Convert IEEE binary16 and float32 values with explicit rounding and special-value handling.
-#include "ndp/fp16.hpp"
+#include "ndp/common/fp16.hpp"
 
 #include <bit>
 #include <limits>

@@ -1,5 +1,5 @@
 // Verify session I/O, validation, shared ownership, failure cleanup, and shutdown behavior.
-#include "ndp/session.hpp"
+#include "ndp/l2/session.hpp"
 
 #include <array>
 #include <cstring>

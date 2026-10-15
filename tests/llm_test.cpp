@@ -1,5 +1,5 @@
 // Compare LLM primitives against independent references and validate shape and numeric edge cases.
-#include "ndp/llm.hpp"
+#include "ndp/l3/llm.hpp"
 #include "test_support.hpp"
 
 #include <algorithm>

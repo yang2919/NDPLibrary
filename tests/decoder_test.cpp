@@ -1,6 +1,6 @@
 // Compare prefill and incremental mixed-engine decoding against an independent scalar reference.
 #include "../examples/toy_decoder.hpp"
-#include "ndp/llm.hpp"
+#include "ndp/l3/llm.hpp"
 #include "test_support.hpp"
 
 #include <atomic>

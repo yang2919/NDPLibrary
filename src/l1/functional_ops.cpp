@@ -1,7 +1,7 @@
 // Evaluate generic elementwise, normalization, and data movement operations on the host.
 #include "functional_ops.hpp"
 
-#include "ndp/fp16.hpp"
+#include "ndp/common/fp16.hpp"
 
 #include <algorithm>
 #include <cmath>

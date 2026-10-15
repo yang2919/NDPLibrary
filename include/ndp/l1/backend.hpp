@@ -1,6 +1,6 @@
 // Define the blocking device backend contract for memory, layouts, execution, and completion.
 #pragma once
-#include "ndp/compute.hpp"
+#include "ndp/common/compute.hpp"
 
 #include <memory>
 #include <span>

@@ -1,5 +1,5 @@
 // Verify packed layout mapping, padding, reuse, failures, and allocation boundaries.
-#include "ndp/session.hpp"
+#include "ndp/l2/session.hpp"
 
 #include <atomic>
 #include <chrono>

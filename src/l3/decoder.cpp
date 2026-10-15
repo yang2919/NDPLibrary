@@ -1,5 +1,5 @@
 // Compose a pre-norm decoder block with RoPE, cached GQA, SwiGLU, and residual connections.
-#include "ndp/decoder.hpp"
+#include "ndp/l3/decoder.hpp"
 
 #include <cmath>
 #include <limits>

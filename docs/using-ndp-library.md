@@ -14,10 +14,10 @@ is FP16. Python/PyTorch bindings are not implemented yet.
 
 | Application need | Include | CMake target |
 |---|---|---|
-| Matrix/vector operations, transfers, layouts, mutable storage | `ndp/session.hpp` | `ndp` |
-| KV cache, RoPE, causal attention | `ndp/llm.hpp` | `ndp_llm` |
-| Decoder weight/config containers and optional block helper | `ndp/decoder.hpp` | `ndp_llm` |
-| Host float-to-FP16 conversion | `ndp/fp16.hpp` | `ndp` |
+| Matrix/vector operations, transfers, layouts, mutable storage | `ndp/l2/session.hpp` | `ndp` |
+| KV cache, RoPE, causal attention | `ndp/l3/llm.hpp` | `ndp_llm` |
+| Decoder weight/config containers and optional block helper | `ndp/l3/decoder.hpp` | `ndp_llm` |
+| Host float-to-FP16 conversion | `ndp/common/fp16.hpp` | `ndp` |
 
 `ndp_llm` links `ndp` transitively. L2 has no cache, token position, or attention
 operation. L3 implements those concepts by composing public L2 operations.
@@ -124,8 +124,8 @@ This complete program uploads FP16 data, computes `x * weight^T`, and downloads 
 result. It requires only the `ndp` target, not L3 or PreparedWeight.
 
 ```cpp
-#include "ndp/fp16.hpp"
-#include "ndp/session.hpp"
+#include "ndp/common/fp16.hpp"
+#include "ndp/l2/session.hpp"
 
 #include <cstring>
 #include <iostream>
