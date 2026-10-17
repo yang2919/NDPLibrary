@@ -1,4 +1,4 @@
-// Expose single-device sessions, tensors, mutable device buffers, prepared weights, and transfers.
+// Expose single-device sessions, tensors, mutable device buffers, layouts, and transfers.
 #pragma once
 #include "ndp/l1/backend.hpp"
 #include "ndp/l2/event.hpp"
@@ -42,26 +42,6 @@ private:
   explicit Tensor(std::shared_ptr<detail::TensorRecord> record) : record_(std::move(record)) {}
 
   std::shared_ptr<detail::TensorRecord> record_;
-  friend class Session;
-};
-
-struct WeightPrepareOptions {
-  std::vector<Engine> engines{Engine::PNM, Engine::PIM};
-  size_t max_resident_bytes = static_cast<size_t>(-1);
-};
-
-class PreparedWeight {
-public:
-  const Tensor &tensor() const {
-    return tensor_;
-  }
-
-  size_t resident_bytes() const;
-
-private:
-  explicit PreparedWeight(Tensor tensor) : tensor_(std::move(tensor)) {}
-
-  Tensor tensor_;
   friend class Session;
 };
 
@@ -117,12 +97,13 @@ public:
   // source selects the representation to read; packed sources are unpacked in-device.
   Result<HostTransfer> to_host_async(const Tensor &, LayoutKind source = LayoutKind::DenseRowMajor);
   Result<HostTensor> to_host(const Tensor &, LayoutKind source = LayoutKind::DenseRowMajor);
-  Result<PreparedWeight> prepare_weight(const Tensor &, WeightPrepareOptions = {});
+  // Generic, validated metadata query; performs no allocation or execution.
+  Result<KernelPlan> query_operation(const OperationSpec &) const;
+  // Return a private representation map sharing existing buffers; wait for requested layouts.
+  Result<Tensor> prepare_layouts(const Tensor &, const std::vector<LayoutDesc> &);
   Result<Tensor> matmul(const Tensor &a, const Tensor &b, OpOptions = {});
   Result<Tensor> matvec(const Tensor &w, const Tensor &x, OpOptions = {Engine::PIM});
   Result<Tensor> linear(const Tensor &x, const Tensor &w, OpOptions = {},
-                        const Tensor *bias = nullptr);
-  Result<Tensor> linear(const Tensor &x, const PreparedWeight &w, OpOptions = {},
                         const Tensor *bias = nullptr);
   Result<Tensor> add(const Tensor &, const Tensor &, OpOptions = {});
   Result<Tensor> mul(const Tensor &, const Tensor &, OpOptions = {});

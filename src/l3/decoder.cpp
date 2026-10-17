@@ -74,15 +74,15 @@ Result<Tensor> decoder_block(Session &session, const Tensor &input, const Decode
     if (!attention_norm) {
       return attention_norm.error();
     }
-    auto query_projection = session.linear(attention_norm.value(), weights.q, projection);
+    auto query_projection = session.linear(attention_norm.value(), weights.q.tensor(), projection);
     if (!query_projection) {
       return query_projection.error();
     }
-    auto key_projection = session.linear(attention_norm.value(), weights.k, projection);
+    auto key_projection = session.linear(attention_norm.value(), weights.k.tensor(), projection);
     if (!key_projection) {
       return key_projection.error();
     }
-    auto value_projection = session.linear(attention_norm.value(), weights.v, projection);
+    auto value_projection = session.linear(attention_norm.value(), weights.v.tensor(), projection);
     if (!value_projection) {
       return value_projection.error();
     }
@@ -127,7 +127,8 @@ Result<Tensor> decoder_block(Session &session, const Tensor &input, const Decode
     if (!merged_heads) {
       return merged_heads.error();
     }
-    auto attention_projection = session.linear(merged_heads.value(), weights.output, projection);
+    auto attention_projection =
+        session.linear(merged_heads.value(), weights.output.tensor(), projection);
     if (!attention_projection) {
       return attention_projection.error();
     }
@@ -140,11 +141,11 @@ Result<Tensor> decoder_block(Session &session, const Tensor &input, const Decode
     if (!ffn_norm) {
       return ffn_norm.error();
     }
-    auto gate = session.linear(ffn_norm.value(), weights.gate, projection);
+    auto gate = session.linear(ffn_norm.value(), weights.gate.tensor(), projection);
     if (!gate) {
       return gate.error();
     }
-    auto up = session.linear(ffn_norm.value(), weights.up, projection);
+    auto up = session.linear(ffn_norm.value(), weights.up.tensor(), projection);
     if (!up) {
       return up.error();
     }
@@ -156,7 +157,7 @@ Result<Tensor> decoder_block(Session &session, const Tensor &input, const Decode
     if (!gated_activation) {
       return gated_activation.error();
     }
-    auto down = session.linear(gated_activation.value(), weights.down, projection);
+    auto down = session.linear(gated_activation.value(), weights.down.tensor(), projection);
     if (!down) {
       return down.error();
     }

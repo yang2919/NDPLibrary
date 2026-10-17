@@ -18,7 +18,7 @@ target_link_libraries(ndp PRIVATE Threads::Threads)
 target_compile_options(ndp PRIVATE -Wall -Wextra -Wpedantic)
 
 # L3 depends on L2; the core library has no cache/model dependency.
-add_library(ndp_llm src/l3/llm.cpp src/l3/decoder.cpp)
+add_library(ndp_llm src/l3/llm.cpp src/l3/decoder.cpp src/l3/weight.cpp)
 target_link_libraries(ndp_llm PUBLIC ndp)
 target_compile_options(ndp_llm PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -38,7 +38,7 @@ if(BUILD_TESTING)
     set_tests_properties(${name}_contracts PROPERTIES TIMEOUT 20)
   endforeach()
 
-  foreach(name llm cache decoder)
+  foreach(name llm cache decoder weight)
     add_executable(ndp_${name}_tests tests/${name}_test.cpp)
     target_link_libraries(ndp_${name}_tests PRIVATE ndp_llm)
     add_test(NAME ${name}_contracts COMMAND ndp_${name}_tests)

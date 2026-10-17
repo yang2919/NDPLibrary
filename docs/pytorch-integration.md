@@ -33,7 +33,9 @@ does not provide those contracts. See the official
 
 The core `ndp` target now provides generic immutable Tensor values and mutable
 DeviceBuffer storage. The optional `ndp_llm` target provides cache policy, RoPE,
-attention, and decoder composition through public L2 APIs. Bind L2 first; L3 can be
+attention, and decoder composition through public L2 APIs. PreparedWeight and its preparation policy also live in L3; L2 linear accepts only
+Tensor handles. Bind generic query_operation/prepare_layouts in L2 and the free
+prepare_weight helper in L3. Bind L2 first; L3 can be
 wrapped from C++ or implemented in Python on the same generic buffer API.
 `copy_into` writes a buffer; `snapshot` returns an independent immutable Tensor.
 Do not model a snapshot as a PyTorch view or in-place alias. See
@@ -45,7 +47,7 @@ Do not model a snapshot as a PyTorch view or in-place alias. See
 |---|---|---|
 | `Session` | Owning Python Session wrapper | Own the move-only Session, serialize submissions, expose explicit close/context manager |
 | `Tensor` | `NdpTensor` wrapper | Keep the native handle and owning Session wrapper alive; expose shape, dtype, wait |
-| `PreparedWeight` | `PreparedWeight` wrapper | Retain prepared device storage; do not upload again on every forward |
+| L3 `PreparedWeight` | `PreparedWeight` wrapper | Retain prepared device storage; do not upload again on every forward |
 | `DeviceBuffer` | Explicit mutable storage wrapper | Expose checked copy/clear and copying snapshot; retain Session owner |
 | L3 `KVCache` | Per-request, per-layer cache wrapper | Retain owner, expose lengths/reset, prevent accidental sharing across requests |
 | `OpOptions` | Engine and layout-policy enums/options | Translate directly; retain per-operation control |
@@ -119,9 +121,9 @@ class NdpDecoderLayer:
         positions = list(range(start, start + tokens))
 
         n = s.rms_norm(x, w.attention_norm)
-        q = s.linear(n, w.q, projection_options)
-        k = s.linear(n, w.k, projection_options)
-        v = s.linear(n, w.v, projection_options)
+        q = s.linear(n, w.q.tensor(), projection_options)
+        k = s.linear(n, w.k.tensor(), projection_options)
+        v = s.linear(n, w.v.tensor(), projection_options)
         q = s.reshape(q, [tokens, self.query_heads, self.head_dim])
         k = s.reshape(k, [tokens, self.kv_heads, self.head_dim])
         v = s.reshape(v, [tokens, self.kv_heads, self.head_dim])
@@ -130,12 +132,12 @@ class NdpDecoderLayer:
         cache.append(s, k, v)
         a = cache.attention(s, q, start)
         a = s.reshape(a, [tokens, width])
-        residual = s.add(x, s.linear(a, w.output, projection_options))
+        residual = s.add(x, s.linear(a, w.output.tensor(), projection_options))
 
         n = s.rms_norm(residual, w.ffn_norm)
-        gate = s.silu(s.linear(n, w.gate, projection_options))
-        up = s.linear(n, w.up, projection_options)
-        return s.add(residual, s.linear(s.mul(gate, up), w.down, projection_options))
+        gate = s.silu(s.linear(n, w.gate.tensor(), projection_options))
+        up = s.linear(n, w.up.tensor(), projection_options)
+        return s.add(residual, s.linear(s.mul(gate, up), w.down.tensor(), projection_options))
 ```
 
 An `nn.Module` wrapper may call this eager code. Merely inheriting `nn.Module` does

@@ -15,6 +15,7 @@ is FP16. Python/PyTorch bindings are not implemented yet.
 | Application need | Include | CMake target |
 |---|---|---|
 | Matrix/vector operations, transfers, layouts, mutable storage | `ndp/l2/session.hpp` | `ndp` |
+| Weight preparation | `ndp/l3/weight.hpp` | `ndp_llm` |
 | KV cache, RoPE, causal attention | `ndp/l3/llm.hpp` | `ndp_llm` |
 | Decoder weight/config containers and optional block helper | `ndp/l3/decoder.hpp` | `ndp_llm` |
 | Host float-to-FP16 conversion | `ndp/common/fp16.hpp` | `ndp` |
@@ -60,7 +61,7 @@ independently generated test data, not outputs sampled from earlier steps.
 | `Session` | Connection to one backend and coordinator of memory/work | Create once; reuse; close when finished |
 | `Tensor` | Immutable logical values, shape/dtype, physical layouts, readiness | Upload or receive from an operation; pass to another operation |
 | `DeviceBuffer` | Explicit mutable dense storage | Allocate; write regions; obtain independent Tensor snapshots |
-| `PreparedWeight` | Optional handle retaining prepared weight layouts | Prepare once and reuse for repeated projections |
+| L3 `PreparedWeight` | Optional handle retaining prepared weight layouts | Prepare once and reuse for repeated projections |
 | `OpOptions` | Engine and layout policy for one operation | Pass to the specific operation whose behavior you want to control |
 | `Event` | Completion or execution failure of queued work | Wait where the application needs completed results |
 | L3 `KVCache` | K/V DeviceBuffers plus request-specific length policy | Create per layer/request; append; reset for reuse |
@@ -106,7 +107,7 @@ RequirePrepared does not prohibit output/workspace allocation and does not force
 host wait for pending input preparation. There is no automatic engine fallback.
 
 `SessionOptions` is different: it limits host staging bytes (64 MiB by default).
-`WeightPrepareOptions` selects which engines' weight layouts to prepare and optionally
+L3 `WeightPrepareOptions` selects which engines' weight layouts to prepare and optionally
 limits their resident bytes. Neither changes the default execution engine.
 
 ### Submission success is different from execution success
@@ -240,20 +241,37 @@ representation stale. Buffer handles themselves share mutable storage when copie
 
 ## 5. Prepare reusable weights and understand layouts
 
-For repeated inference, prepare the weight once:
+For repeated inference, use the L3 preparation helper. This section requires
+`#include "ndp/l3/weight.hpp"` and linking `ndp_llm`:
 
 ```cpp
 // w is the ordinary Tensor weight from the matrix example.
-auto prepared = require(session.prepare_weight(w)); // Default: prepare PNM and PIM.
+auto prepared = require(ndp::prepare_weight(session, w)); // Default: prepare PNM and PIM.
 const ndp::OpOptions pim{
     ndp::Engine::PIM, ndp::LayoutPolicy::RequirePrepared};
-auto pim_output = require(session.linear(x, prepared, pim));
+auto pim_output = require(session.linear(x, prepared.tensor(), pim));
 ```
 
-PreparedWeight is optional; `linear(x, w, options)` also accepts a Tensor. Preparation
+PreparedWeight is an optional L3 object. L2 `linear(x, w, options)` accepts only a
+Tensor; pass `prepared.tensor()` to use the prepared representations. Preparation
 makes the one-time layout cost explicit and waits for the requested layouts. Retain
 the returned prepared handle. It has its own representation map sharing existing
 immutable buffers; repeatedly preparing the original Tensor can repeat packing.
+
+For L2-only applications, query a validated operation plan and prepare its input
+layout directly, as shown in `single_device_linear.cpp`:
+
+```cpp
+auto plan = require(session.query_operation({
+    ndp::OpKind::Linear, ndp::Engine::PIM, {x.desc(), w.desc()}, {}}));
+auto prepared_tensor = require(session.prepare_layouts(w, {plan.inputs[1]}));
+auto result = require(session.linear(x, prepared_tensor, pim));
+```
+
+`prepare_layouts()` is generic: it accepts layout descriptors, not engine or model
+weight policy. It returns an independent representation map sharing existing buffers
+and waits for requested layouts. The source map remains unchanged on failure. The L3
+helper chooses the layouts and checks the weight budget before using this operation.
 
 **Materializing a layout creates real storage**, not just metadata. The functional
 backend uses dense PNM weights and padded `TestTile4x4` PIM weights. This test layout
@@ -338,9 +356,9 @@ of downloading/uploading it.
 const ndp::OpOptions projection{engine, ndp::LayoutPolicy::RequirePrepared};
 auto normalized = require(session.rms_norm(input, weights.attention_norm, config.epsilon),
                           "Attention RMSNorm");
-auto query = require(session.linear(normalized, weights.q, projection), "Q projection");
-auto key = require(session.linear(normalized, weights.k, projection), "K projection");
-auto value = require(session.linear(normalized, weights.v, projection), "V projection");
+auto query = require(session.linear(normalized, weights.q.tensor(), projection), "Q projection");
+auto key = require(session.linear(normalized, weights.k.tensor(), projection), "K projection");
+auto value = require(session.linear(normalized, weights.v.tensor(), projection), "V projection");
 ```
 
 `normalized` is `[T,4]`. Q becomes `[T,4]`; K/V become `[T,2]`, with
@@ -405,7 +423,7 @@ The L3 helper already calls softmax; the example does not call it a second time.
 
 ```cpp
 auto merged = require(session.reshape(attended, {token_count, model_width}), "Merge heads");
-auto projected = require(session.linear(merged, weights.output, projection),
+auto projected = require(session.linear(merged, weights.output.tensor(), projection),
                          "Attention output projection");
 auto residual = require(session.add(input, projected), "Attention residual");
 ```
@@ -419,11 +437,11 @@ residual because operations return new values.
 ```cpp
 auto ffn_input =
     require(session.rms_norm(residual, weights.ffn_norm, config.epsilon), "FFN RMSNorm");
-auto gate = require(session.linear(ffn_input, weights.gate, projection), "Gate projection");
-auto up = require(session.linear(ffn_input, weights.up, projection), "Up projection");
+auto gate = require(session.linear(ffn_input, weights.gate.tensor(), projection), "Gate projection");
+auto up = require(session.linear(ffn_input, weights.up.tensor(), projection), "Up projection");
 auto activated = require(session.silu(gate), "SiLU");
 auto gated = require(session.mul(activated, up), "SwiGLU multiply");
-auto down = require(session.linear(gated, weights.down, projection), "Down projection");
+auto down = require(session.linear(gated, weights.down.tensor(), projection), "Down projection");
 auto output = require(session.add(residual, down), "FFN residual");
 ```
 

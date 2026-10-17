@@ -58,9 +58,12 @@ int main() {
       const ndp::OpOptions projection{engine, ndp::LayoutPolicy::RequirePrepared};
       auto normalized = require(session.rms_norm(input, weights.attention_norm, config.epsilon),
                                 "Attention RMSNorm");
-      auto query = require(session.linear(normalized, weights.q, projection), "Q projection");
-      auto key = require(session.linear(normalized, weights.k, projection), "K projection");
-      auto value = require(session.linear(normalized, weights.v, projection), "V projection");
+      auto query =
+          require(session.linear(normalized, weights.q.tensor(), projection), "Q projection");
+      auto key =
+          require(session.linear(normalized, weights.k.tensor(), projection), "K projection");
+      auto value =
+          require(session.linear(normalized, weights.v.tensor(), projection), "V projection");
 
       // Step 5b: Split heads and apply RoPE to Q/K at this step's absolute positions.
       auto query_heads = require(
@@ -86,18 +89,21 @@ int main() {
 
       // Step 5d: Merge heads, project, and add the attention residual.
       auto merged = require(session.reshape(attended, {token_count, model_width}), "Merge heads");
-      auto projected = require(session.linear(merged, weights.output, projection),
+      auto projected = require(session.linear(merged, weights.output.tensor(), projection),
                                "Attention output projection");
       auto residual = require(session.add(input, projected), "Attention residual");
 
       // Step 5e: Apply SwiGLU FFN and add the second residual.
       auto ffn_input =
           require(session.rms_norm(residual, weights.ffn_norm, config.epsilon), "FFN RMSNorm");
-      auto gate = require(session.linear(ffn_input, weights.gate, projection), "Gate projection");
-      auto up = require(session.linear(ffn_input, weights.up, projection), "Up projection");
+      auto gate =
+          require(session.linear(ffn_input, weights.gate.tensor(), projection), "Gate projection");
+      auto up =
+          require(session.linear(ffn_input, weights.up.tensor(), projection), "Up projection");
       auto activated = require(session.silu(gate), "SiLU");
       auto gated = require(session.mul(activated, up), "SwiGLU multiply");
-      auto down = require(session.linear(gated, weights.down, projection), "Down projection");
+      auto down =
+          require(session.linear(gated, weights.down.tensor(), projection), "Down projection");
       auto output = require(session.add(residual, down), "FFN residual");
 
       // Step 6: Wait only where this example needs to report completion.

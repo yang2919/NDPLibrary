@@ -1,4 +1,4 @@
-// Verify FP16 conversion, compute accuracy, prepared weights, and workspace reuse.
+// Verify FP16 conversion, compute accuracy, layout preparation, and workspace reuse.
 #include "ndp/common/fp16.hpp"
 #include "test_support.hpp"
 
@@ -90,7 +90,8 @@ void numerics_and_chaining() {
         }
       }
     }
-    auto prepared = s.prepare_weight(tw);
+    auto prepared =
+        s.prepare_layouts(tw, {s.query_layout(tw.desc(), LayoutKind::TestTile4x4).value()});
     CHECK(prepared);
     auto linear = s.linear(ta, prepared.value(), {Engine::PNM, LayoutPolicy::RequirePrepared});
     CHECK(linear);
@@ -139,14 +140,14 @@ void validation() {
   auto w = upload(s, {2, 3}, {1, 2, 3, 4, 5, 6}), x = upload(s, {3}, {1, 2, 3});
   auto missing = s.matvec(w, x, {Engine::PIM, LayoutPolicy::RequirePrepared});
   CHECK(!missing && missing.error().code == ErrorCode::LayoutNotPrepared);
-  size_t bytes = s.memory_stats().live_bytes;
-  auto budget = s.prepare_weight(w, {{Engine::PNM, Engine::PIM}, 43}); // 12 dense + 32 packed
-  CHECK(!budget && budget.error().code == ErrorCode::OutOfMemory);
-  CHECK(s.memory_stats().live_bytes == bytes);
+  auto packed = s.query_layout(w.desc(), LayoutKind::TestTile4x4);
+  CHECK(packed);
+  auto malformed = packed.value();
+  ++malformed.physical_bytes;
+  CHECK(!s.prepare_layouts(w, {packed.value(), malformed}));
   CHECK(w.representations().size() == 1);
-  auto prepared = s.prepare_weight(w, {{Engine::PNM, Engine::PIM}, 44});
+  auto prepared = s.prepare_layouts(w, {packed.value()});
   CHECK(prepared);
-  CHECK(prepared.value().resident_bytes() == 44);
   CHECK(w.representations().size() == 1);
   CHECK(!s.matmul(w, w));
   auto matrix = upload(s, {3, 2}, {1, 2, 3, 4, 5, 6});
@@ -282,7 +283,7 @@ void async_and_reuse(bool fail) {
   auto s = std::move(made.value());
   Guard guard{c};
   auto w = upload(s, {2, 2}, {1, 2, 3, 4}), x = upload(s, {1, 2}, {1, 2});
-  auto prepared = s.prepare_weight(w);
+  auto prepared = s.prepare_layouts(w, {s.query_layout(w.desc(), LayoutKind::TestTile4x4).value()});
   CHECK(prepared);
   CHECK(c->transforms == 1);
   std::vector<Tensor> outputs;
@@ -333,7 +334,8 @@ void allocation_and_prepare_failure() {
   auto failing = Session::create(std::make_unique<Instrumented>(c));
   CHECK(failing);
   auto weight = upload(failing.value(), {2, 2}, {1, 2, 3, 4});
-  auto prepared = failing.value().prepare_weight(weight);
+  auto prepared = failing.value().prepare_layouts(
+      weight, {failing.value().query_layout(weight.desc(), LayoutKind::TestTile4x4).value()});
   CHECK(!prepared);
   CHECK(weight.representations().size() == 1);
   CHECK(failing.value().memory_stats().live_bytes == 8);

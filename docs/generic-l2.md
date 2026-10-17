@@ -13,8 +13,8 @@ APIs. This is an API-breaking change; it does not remove asynchronous execution.
 
 `ndp_llm` links `ndp`. Core-only applications and buffer tests link only `ndp`.
 RMSNorm, softmax, and SiLU remain stateless numerical primitives; they do not know
-about models, requests, positions, or cache state. PreparedWeight remains an optional
-layout-preparation helper. `linear` also accepts an ordinary Tensor.
+about models, requests, positions, or cache state. PreparedWeight is an optional L3 helper in `ndp/l3/weight.hpp`. L2 `linear` accepts
+only ordinary Tensors; use `prepared.tensor()` at the layer boundary.
 
 ## Physical source organization
 
@@ -73,7 +73,7 @@ implement read/write hazards before relaxing that ordering.
 - `transpose(matrix)` copies a rank-two matrix with swapped axes.
 - `scale(tensor, factor)` multiplies every element by a finite host scalar.
 - `linear(x, weight_tensor, options, bias)` performs `x * weight^T` with ordinary
-  Tensor operands. A PreparedWeight overload remains for existing callers.
+  Tensor operands. There is no PreparedWeight overload in L2.
 
 Gather, transpose, and scale currently use PNM. Matrix/linear engine selection and
 layout policies retain their existing meaning. These are a minimal composition
@@ -123,3 +123,15 @@ A future optimization should preserve the public separation, for example through
 validated fused execution of generic operation sequences and richer accumulation
 storage. Hardware-native async, multi-device serving, and PyTorch bindings are not
 implemented by this change.
+
+## Weight preparation boundary
+
+`Session::prepare_weight(w, options)` has been replaced by L3
+`ndp::prepare_weight(session, w, options)`. Include `ndp/l3/weight.hpp` and link
+`ndp_llm`. Pass `prepared.tensor()` into `Session::linear`.
+
+L2 exposes `query_operation(spec)` for validated kernel/layout metadata and
+`prepare_layouts(tensor, layouts)` for a private representation map sharing existing
+buffers. These methods know nothing about model weights or weight budgets. L3 chooses
+linear-compatible engine layouts, accounts for existing retained representations,
+checks the budget before preparation, and wraps the resulting Tensor.

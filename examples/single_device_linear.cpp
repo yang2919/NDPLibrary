@@ -33,9 +33,14 @@ int main() {
     return 2;
   }
 
-  // Budget includes 12 dense bytes and 32 packed bytes, including padding.
-  const ndp::WeightPrepareOptions preparation{{ndp::Engine::PNM, ndp::Engine::PIM}, 44};
-  auto prepared_weight = session.prepare_weight(weight.value(), preparation);
+  // Query the PIM kernel's weight layout without model-specific preparation policy.
+  auto plan = session.query_operation(
+      {ndp::OpKind::Linear, ndp::Engine::PIM, {input.value().desc(), weight.value().desc()}, {}});
+  if (!plan) {
+    std::cerr << "Operation query failed: " << plan.error().message << '\n';
+    return 3;
+  }
+  auto prepared_weight = session.prepare_layouts(weight.value(), {plan.value().inputs[1]});
   if (!prepared_weight) {
     std::cerr << "Weight preparation failed: " << prepared_weight.error().message << '\n';
     return 3;
@@ -60,8 +65,7 @@ int main() {
               << ndp::fp16_to_float(values[0]) << ", " << ndp::fp16_to_float(values[1]) << '\n';
   }
 
-  std::cout << "weight bytes: " << prepared_weight.value().resident_bytes()
-            << ", workspace bytes: " << session.memory_stats().workspace_bytes << '\n';
+  std::cout << "workspace bytes: " << session.memory_stats().workspace_bytes << '\n';
   auto closed = session.close();
   if (!closed) {
     std::cerr << "Session shutdown failed: " << closed.error().message << '\n';

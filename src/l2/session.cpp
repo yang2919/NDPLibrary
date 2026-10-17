@@ -532,73 +532,61 @@ Result<HostTensor> Session::to_host(const Tensor &tensor, LayoutKind source) {
   return transfer.value().wait();
 }
 
-size_t PreparedWeight::resident_bytes() const {
-  size_t bytes = 0;
-  for (const auto &repr : tensor_.representations()) {
-    bytes += repr.layout.physical_bytes;
-  }
-  return bytes;
-}
-
-Result<PreparedWeight> Session::prepare_weight(const Tensor &tensor, WeightPrepareOptions options) {
+Result<KernelPlan> Session::query_operation(const OperationSpec &operation) const {
   if (!state_ || state_->closed) {
     return Status{ErrorCode::SessionClosed, "Session closed"};
   }
-  if (!tensor.record_ || tensor.record_->dense().buffer->resources != state_->resources) {
-    return Status{ErrorCode::SessionMismatch, "Weight belongs to another session"};
+  try {
+    return detail::Planner::build(*state_->resources->backend, operation);
+  } catch (const std::bad_alloc &) {
+    return Status{ErrorCode::OutOfMemory, "Operation query failed"};
+  } catch (const std::exception &e) {
+    return Status{ErrorCode::BackendFailure, e.what()};
   }
-  if (tensor.desc().shape.size() != 2 || options.engines.empty()) {
-    return Status{ErrorCode::InvalidArgument, "Weight must be rank-2 with at least one engine use"};
+}
+
+Result<Tensor> Session::prepare_layouts(const Tensor &tensor,
+                                        const std::vector<LayoutDesc> &layouts) {
+  if (auto valid = validate(tensor); !valid) {
+    return valid.error();
   }
   try {
-    // A private representation map shares existing immutable buffers. New layouts are
-    // published only through the PreparedWeight returned on success.
-    auto record = std::make_shared<detail::TensorRecord>(*tensor.record_);
-    Tensor prepared(record);
+    // Validate every descriptor before allocating or publishing new representations.
+    for (const auto &layout : layouts) {
+      auto expected = query_layout(tensor.desc(), layout.kind);
+      if (!expected) {
+        return expected.error();
+      }
+      if (expected.value() != layout) {
+        return Status{ErrorCode::InvalidArgument, "Invalid layout descriptor"};
+      }
+    }
     auto ready = tensor.wait();
     if (!ready) {
       return ready.error();
     }
-    std::map<LayoutKind, LayoutDesc> required;
-    for (auto engine : options.engines) {
-      OperationSpec op{OpKind::Linear,
-                       engine,
-                       {{{1, tensor.desc().shape[1]}, tensor.desc().dtype}, tensor.desc()},
-                       {}};
-      auto plan = detail::Planner::build(*state_->resources->backend, op);
-      if (!plan) {
-        return plan.error();
-      }
-      required.emplace(plan.value().inputs[1].kind, plan.value().inputs[1]);
-    }
-    size_t total = 0;
+    auto record = std::make_shared<detail::TensorRecord>(*tensor.record_);
     for (auto it = record->representations.begin(); it != record->representations.end();) {
       if (it->second.ready.status() == EventStatus::Failed) {
         it = record->representations.erase(it);
       } else {
-        required.emplace(it->first, it->second.layout);
         ++it;
       }
     }
-    for (const auto &[kind, layout] : required) {
-      if (layout.physical_bytes > options.max_resident_bytes - total) {
-        return Status{ErrorCode::OutOfMemory, "Prepared weight exceeds resident byte budget"};
-      }
-      total += layout.physical_bytes;
-    }
-    for (const auto &[kind, layout] : required) {
+    Tensor prepared(record);
+    for (const auto &layout : layouts) {
       auto event = materialize_layout(prepared, layout);
       if (!event) {
         return event.error();
       }
-      auto result = event.value().wait();
-      if (!result) {
-        return result.error();
+      auto completed = event.value().wait();
+      if (!completed) {
+        return completed.error();
       }
     }
-    return PreparedWeight(std::move(prepared));
+    return prepared;
   } catch (const std::bad_alloc &) {
-    return Status{ErrorCode::OutOfMemory, "Weight preparation allocation failed"};
+    return Status{ErrorCode::OutOfMemory, "Layout preparation failed"};
   } catch (const std::exception &e) {
     return Status{ErrorCode::BackendFailure, e.what()};
   }
@@ -618,11 +606,6 @@ Result<Tensor> Session::linear(const Tensor &x, const Tensor &w, OpOptions optio
     return compute(OpKind::Linear, {x, w, *bias}, options);
   }
   return compute(OpKind::Linear, {x, w}, options);
-}
-
-Result<Tensor> Session::linear(const Tensor &x, const PreparedWeight &w, OpOptions options,
-                               const Tensor *bias) {
-  return linear(x, w.tensor(), options, bias);
 }
 
 Result<Tensor> Session::compute(OpKind kind, const std::vector<Tensor> &tensors, OpOptions options,

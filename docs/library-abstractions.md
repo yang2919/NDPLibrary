@@ -97,13 +97,16 @@ view. A pending Tensor can be passed to another operation without a host wait.
 **Why needed:** separates application-level values from allocation handles, physical
 packing, and readiness. It is not currently a PyTorch Tensor.
 
-### PreparedWeight — reusable projection weight representations
+### PreparedWeight — reusable projection weight representations (L3)
 
 **Represents:** a Tensor whose layouts were prepared for a selected set of engines.
 It wraps a Tensor and exposes it through `tensor()`, plus `resident_bytes()`.
 
 **Responsibilities:** make repeated `linear()` calls reuse prepared weight data.
-`prepare_weight()` waits for the requested representations before returning.
+The free function `ndp::prepare_weight(session, tensor, options)` selects layouts
+for linear operations and applies a resident-byte budget in L3. It uses L2
+`query_operation()` and `prepare_layouts()` and waits before returning. Neither the
+PreparedWeight type nor its policy is part of Session. Pass `.tensor()` to `linear()`.
 
 **Ownership and lifetime:** its private representation map shares existing immutable
 buffers with the source Tensor; newly prepared representations belong to that map.
@@ -189,7 +192,7 @@ These are value descriptions, not independent devices, storage allocations, or w
 | `OpOptions` | Engine and input layout policy for one call | PNM + AllowMaterialize by default; `matvec()` has a PIM default argument |
 | `LayoutPolicy` | Permission to prepare missing input representations | AllowMaterialize schedules conversion; RequirePrepared rejects missing/failed layouts but accepts pending preparation |
 | `SessionOptions` | Runtime host-staging budget | `max_staging_bytes` defaults to 64 MiB; does not select an engine |
-| `WeightPrepareOptions` | Engines to prepare and resident-byte budget | Both engines by default; budget covers weight representations |
+| L3 `WeightPrepareOptions` | Engines to prepare and resident-byte budget | Both engines by default; budget covers weight representations |
 | `KVCacheDesc` | Capacity, KV head count, head dimension, dtype | Fixed capacity and F16 storage |
 | `RepresentationInfo` | Public snapshot of layout and EventStatus | Metadata only; not a mutable buffer handle |
 | `DeviceCaps` | Backend name, memory capacity, scratchpad size | Not a full per-operation support matrix; query_operation supplies operation requirements |
@@ -324,7 +327,8 @@ These helpers are not additional runtime abstractions or required application AP
 
 ## 8. One projection traced through the objects
 
-For `session.linear(x, weight, {Engine::PIM, LayoutPolicy::RequirePrepared})`:
+For `session.linear(x, weight.tensor(), {Engine::PIM, LayoutPolicy::RequirePrepared})`
+where `weight` is an L3 PreparedWeight:
 
 1. Session checks that `x` and `weight` belong to its Resources.
 2. It constructs an OperationSpec from the logical inputs and requested engine.

@@ -16,7 +16,7 @@ and a decoder walkthrough matched to the C++ source.
 
 | Layer | CMake target / interface | Responsibility |
 |---|---|---|
-| L3: model composition | `ndp_llm`, `ndp/l3/llm.hpp`, `ndp/l3/decoder.hpp` | KV cache policy, RoPE, causal attention, decoder composition |
+| L3: model composition | `ndp_llm`, `ndp/l3/llm.hpp`, `ndp/l3/decoder.hpp` | Weight preparation, KV cache policy, RoPE, attention, decoder composition |
 | L2: generic runtime | `ndp`, `ndp/l2/session.hpp` | Tensor operations, memory, layout preparation, submission and completion |
 | L1: backend adapter | `ndp/l1/backend.hpp` | Allocation, transfers, layout conversion, kernel execution |
 
@@ -38,7 +38,8 @@ include/ndp/                 src/
 ├── l2/                     ├── l2/
 │   session.hpp, event.hpp  │   session runtime and private planner
 └── l3/                     └── l3/
-    llm.hpp, decoder.hpp        cache, RoPE, attention, decoder composition
+    weight.hpp, llm.hpp,        weight preparation, cache, RoPE, attention,
+    decoder.hpp                decoder composition
 ```
 
 `common` contains shared data/operation contracts rather than runtime or model state.
@@ -108,7 +109,7 @@ Include `ndp/l2/session.hpp` for L2, `ndp/l3/llm.hpp` for cache/RoPE/attention, 
 | `Session` | Own one backend connection and coordinate memory, work, and shutdown |
 | `Tensor` | Immutable values with logical shape/dtype, physical representations, and readiness |
 | `DeviceBuffer` | Mutable dense storage accessed through checked writes and copying snapshots |
-| `PreparedWeight` | Optional handle for layouts prepared once and reused across projections |
+| L3 `PreparedWeight` | Optional handle for layouts prepared once and reused across projections |
 | `OpOptions` | Select an operation's engine and permission to prepare missing input layouts |
 | `Event` | Observe completion or execution failure of submitted work |
 | L3 `KVCache` | Manage K/V buffers, capacity, token lengths, and reset for one layer/request |
@@ -119,9 +120,11 @@ to obtain an independent Tensor, and `clear()` to overwrite buffers with zeros.
 Snapshot is a device copy, not a view. Handles and queued work retain their storage;
 applications do not manually free device allocations.
 
-`linear()` accepts either an ordinary Tensor weight or a PreparedWeight. Layout
-preparation is optional as an explicit step, but required input representations must
-exist or be created according to the operation's layout policy.
+L2 `linear()` accepts Tensor weights only. L3 `ndp::prepare_weight()` (include
+`ndp/l3/weight.hpp`, link `ndp_llm`) provides model-specific preparation policy;
+pass its result's `.tensor()` to L2. Generic `Session::query_operation()` and
+`prepare_layouts()` remain available without L3. Required input layouts must exist
+or be created according to the operation's layout policy.
 
 ## Supported execution
 

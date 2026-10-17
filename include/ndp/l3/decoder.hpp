@@ -1,6 +1,7 @@
 // Expose decoder configuration, prepared weights, and the single-block inference entry point.
 #pragma once
 #include "ndp/l3/llm.hpp"
+#include "ndp/l3/weight.hpp"
 
 namespace ndp {
 struct DecoderConfig {

@@ -1,8 +1,8 @@
 // Build deterministic FP16 inputs, weights, and RoPE tables for decoder examples and tests.
 #pragma once
 
-#include "ndp/l3/decoder.hpp"
 #include "ndp/common/fp16.hpp"
+#include "ndp/l3/decoder.hpp"
 
 #include <cmath>
 #include <stdexcept>
@@ -39,7 +39,7 @@ inline Tensor tensor(Session &session, std::vector<uint64_t> shape,
 
 inline PreparedWeight weight(Session &session, uint64_t rows, uint64_t cols, int seed) {
   auto raw_weight = tensor(session, {rows, cols}, values(rows * cols, seed));
-  auto prepared = session.prepare_weight(raw_weight);
+  auto prepared = ndp::prepare_weight(session, raw_weight);
   if (!prepared) {
     throw std::runtime_error("Weight preparation failed: " + prepared.error().message);
   }
