@@ -1,0 +1,18 @@
+{
+  "source_catalog": "https://resources.gem5.org/resources.json",
+  "source_catalog_version": "22.1",
+  "resources": [
+    {
+      "file": "vmlinux-5.4.49",
+      "url": "https://dist.gem5.org/dist/v22-1/kernels/x86/static/vmlinux-5.4.49",
+      "gzip": false,
+      "md5": "60a53c7d47d7057436bf4b9df707a841"
+    },
+    {
+      "file": "x86-ubuntu.img",
+      "url": "https://dist.gem5.org/dist/v22-1/images/x86/ubuntu-18-04/x86-ubuntu.img.gz",
+      "gzip": true,
+      "md5": "90e363abf0ddf22eefa2c7c5c9391c49"
+    }
+  ]
+}

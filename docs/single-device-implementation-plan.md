@@ -1,5 +1,9 @@
 # Single-device NDP Library L2/L3 구현 계획
 
+> Historical design/milestone record. The current API and L2/L3 boundary are described
+> in [Generic L2 Runtime](generic-l2.md); earlier Session KV/attention/RoPE APIs were removed.
+
+
 상태: 구현을 시작하기 위한 설계 제안. 이 문서의 범위와 결정은 기존 `l2-l3-design.md`의 일반 설계보다 우선한다. 아래 C++ 선언은 책임과 계약을 나타내는 interface 초안이며 컴파일 가능한 헤더가 아니다.
 
 ## 1. 구현 목표와 범위
@@ -458,4 +462,46 @@ Trace 필드: op id, engine, tensor/layout id, allocation bytes, transform/copy 
 - synchronize/close는 첫 실행 오류를 유지하여 반환한다. 독립 작업은 계속 실행하고 실패한 Tensor를 읽는 dependent 작업만 건너뛴다. 반복 close도 기존 종료 오류를 반환한다.
 - 현 IBackend는 worker가 호출하는 blocking adapter다. 성공/실패/예외 모두 device 접근이 중단된 뒤 반환해야 한다. Native asynchronous ticket 및 불확실한 완료의 quarantine은 실제 adapter 도입 시 별도 계약 확장이 필요하다.
 - Worker command는 BufferLease/Resources만 보유하며 Session 실행 상태를 참조하지 않는다. Session 종료 후 Tensor는 backend 자원만 유지한다.
-- S3 layout 변환 및 S4 compute는 아직 구현하지 않았다.
+- S3/S4 현황은 아래를 참고한다.
+
+## 구현 현황: S3
+
+- LayoutDesc와 TensorRecord 내부 LayoutManager/Representation을 추가했다. 동일 Tensor에 dense 및 packed allocation과 readiness Event를 유지한다.
+- Session::query_layout/materialize_layout 및 Tensor::representations를 제공한다. Pending/success 변환은 재사용하고 실패한 표현은 명시적 재요청으로 교체한다. 실패 표현의 메모리는 교체 또는 Tensor 소멸 시 반환한다.
+- TestTile4x4는 rank-2 FP16의 가역 테스트 형식이다. 양 축을 4 단위로 padding하고 tile 내 column-major 배치를 사용한다. 실제 AiM/FPGA 형식은 아니다.
+- Backend가 descriptor와 pack/unpack을 정의하며 runtime은 physical bytes로 용량을 예약한다. 현재 kind별 canonical descriptor 하나를 지원한다. 가변 packing parameter를 가진 LayoutKey는 후속 확장 사항이다.
+- Packed source를 지정한 host export는 실제 packed buffer를 임시 dense device buffer로 unpack한다. 기존 dense 사본을 읽어 round-trip 검증을 우회하지 않는다. Host fallback은 없다.
+- Tensor::wait는 canonical upload 완료이며 materialize_layout의 반환 Event는 변환 완료다. Representation snapshot의 status로 개별 실패를 확인할 수 있다.
+- 검증 범위: tile 경계 전후 36개 shape의 왕복, 독립 physical mapping/padding oracle, 중복 pending 요청, 조기 Tensor 파괴, transform 실패/재시도/의존성, OOM 및 descriptor 위변조.
+
+## 구현 현황: S4
+
+- 순수 metadata Planner/ExecutionPlan과 Session::matmul/matvec/linear를 추가했다. Shape/engine/layout/출력 크기/SPM을 검사한 후 기존 FIFO executor로 연결한다.
+- FunctionalBackend에서 PNM GEMM·GEMV·linear(+선택적 bias), PIM GEMV 및 M=1/bias 없는 linear를 구현했다. 실제 RVV/FPGA kernel은 아직 없으며 host에서 기능을 검증한다.
+- 수치 계약은 FP16 입력·출력, K 순서의 FP32 FMA 누적, FP32 bias addition, 최종 round-to-nearest-even이다. Host용 명시적 FP16 변환 함수도 추가했다.
+- PreparedWeight는 기존 불변 buffer를 공유하는 private representation map을 가진다. 준비 중 만든 표현은 성공 결과에만 공개하고 실패 시 회수한다. 원래 Tensor map은 변경하지 않는다. 예산은 원본을 포함한 모든 고유 표현의 physical bytes다. 반복 실행에서는 동일 PreparedWeight를 재사용한다.
+- PNM SPM arena는 첫 실행에서 backend의 가용 capacity만큼 지연 할당하고 FIFO 실행에서 재사용한다. Query가 SPM에 맞는 K tile(최대 64)을 선택한다. 최소 4 bytes도 확보되지 않으면 제출 전에 실패한다.
+- workspace_bytes는 DRAM live_bytes와 별도이며 성공적인 종료 시 0이 된다. PIM functional 경로는 scratchpad를 사용하지 않는다.
+- RequirePrepared는 미준비/실패한 layout을 즉시 거부하며 pending layout은 dependency로 연결한다. PNM/PIM 간 출력 연결도 host 반환 없이 가능하다.
+- 검증: 독립 수치 oracle, 모든 FP16 bit pattern의 decode/finite round-trip, ties/subnormal/overflow, FP32 누적 구별, tile tail, engine/shape/layout 오류, 메모리 예산, 준비 실패 rollback, 실행 실패 전파, 다중 queue 작업에서 단일 workspace 재사용.
+
+## 구현 현황: S5/S6 및 S7 범위 변경
+
+- 사용자 지시(2026-10-14)에 따라 실제 simulator 연동은 제외한다. S7 실장치 연동/검증은 완료로 표시하지 않는다.
+- S5: PNM add/mul, RMSNorm, last-axis softmax, SiLU, 명시적인 table/position을 받는 interleaved RoPE를 구현했다. Dense reshape는 데이터 복사이며 alias를 만들지 않는다.
+- S6: 고정 capacity KVCache, 부분 실패 poison/reset, causal GQA attention, pre-norm decoder block 및 prefill/decode example을 구현했다.
+- KVCache에 대한 실제 API는 Session::create_kv_cache/append/reset/attention이며, 객체는 길이/오류 상태를 제공한다. Scheduled length는 제출 시 갱신하고 committed length는 K/V 쓰기 모두 성공한 경우에만 갱신한다.
+- PNM primitive와 attention의 functional 구현은 FP32 중간 계산 후 FP16 출력이다. 현재 attention은 score를 재계산해 scratch 사용량을 제한하는 correctness reference다. 실제 성능을 나타내지 않는다.
+- Decoder는 RMSNorm→Q/K/V→RoPE→KV append→causal GQA→output projection/residual→RMSNorm→SwiGLU FFN/residual로 구성된다. Prefill PNM, single-token decode PIM projection을 명시적으로 선택할 수 있다.
+- 검증: 독립 scalar reference에 대해 prefill 2토큰+decode 3회 결과 비교, full-sequence prefill과 비교, 반복 요청 후 메모리 회수, 재packing/내부 host download 부재, KV 부분 실패/의존성/reset/capacity 검증.
+- 전체 decoder 호출은 transaction이 아니다. Append 제출 후 다른 작업이 실패하면 cache가 이미 진전되었을 수 있으므로 해당 요청의 cache를 reset/recreate한 후 재시도한다.
+- 단일 FIFO에 의존하는 cache 접근 순서를 유지했다. Native FPGA 비동기 queue 지원은 backend 사양 확보 후 read/write hazard와 completion 계약을 함께 확장해야 한다.
+
+## 코드 검토 후 단순화 (2026-10-14)
+
+- 동작 없는 LayoutManager map wrapper와 ExecutionPlan 단일-field wrapper를 제거했다. TensorRecord가 표현 map을 직접 보유하고 Planner는 검증한 KernelPlan을 반환한다.
+- TensorRecord의 canonical buffer/Event 중복 필드를 제거했다. Dense Representation이 해당 상태를 한 곳에서 관리한다.
+- 실행 코드에서 전혀 사용되지 않는 MemorySpace enum을 제거했다. 현재 메모리 구분은 DRAM allocation과 별도 workspace backend API로 이루어진다.
+- Functional PNM MAC의 읽히지 않는 accumulator scratch 쓰기 및 4-byte 예약을 제거했다. 현재 실제 사용량은 두 FP16 tile의 4*K bytes이며 최소 4 bytes다.
+- scratch를 사용하지 않는 functional LLM kernel의 임의 4-byte 요구 조건을 제거했다. 실제 FPGA의 메모리 요구사항을 가정한 변경은 아니다.
+- 연산 API, layout 변환, PreparedWeight, Event/FIFO, KV cache 오류 처리 및 reference 검증은 기능상 필요하므로 유지했다.

@@ -1,0 +1,10 @@
+# One run per line. args: batch, context (tokens incl. the new one: short
+# 1024, middle 4096, max = 10240 for batch 4 and 5120 for batch 8), RVV
+# workers (must equal rvv_cores).
+name,memory,cpu,rvv_cores,ab_mode,args
+b4-short,lpddr6,o3,1,baseline,4 short 1
+b8-short,lpddr6,o3,1,baseline,8 short 1
+b4-middle,lpddr6,o3,1,baseline,4 middle 1
+b8-middle,lpddr6,o3,1,baseline,8 middle 1
+b4-max,lpddr6,o3,1,baseline,4 max 1
+b8-max,lpddr6,o3,1,baseline,8 max 1

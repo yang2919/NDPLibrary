@@ -1,4 +1,5 @@
 // Compose a decoder layer from Session operations for PNM prefill and PIM-projection decode.
+#include "backend_options.hpp"
 #include "toy_decoder.hpp"
 
 #include <iostream>
@@ -13,7 +14,7 @@ template <class T> T require(ndp::Result<T> result, const char *operation) {
 }
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
   try {
     constexpr size_t device_memory_bytes = 1 << 20;
     constexpr size_t scratchpad_bytes = 256;
@@ -22,8 +23,13 @@ int main() {
     constexpr size_t decode_steps = 3;
 
     // Step 1: Open one device session.
-    auto created =
-        ndp::Session::create(ndp::make_functional_backend(device_memory_bytes, scratchpad_bytes));
+    auto backend =
+        ndp::example::backend_from_args(argc, argv, device_memory_bytes, scratchpad_bytes);
+    if (!backend) {
+      std::cerr << backend.error().message << '\n';
+      return 1;
+    }
+    auto created = ndp::Session::create(std::move(backend.value()));
     if (!created) {
       std::cerr << "Session creation failed: " << created.error().message << '\n';
       return 1;

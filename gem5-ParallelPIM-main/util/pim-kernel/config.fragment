@@ -1,0 +1,4 @@
+# Added to the configuration of the gem5-resources kernel
+# riscv-linux-6.8.12-kernel-1.0.0 (extracted from its IKCONFIG data).
+# Way 2: the processing-in-memory (PIM) memory as a NUMA node.
+CONFIG_NUMA=y

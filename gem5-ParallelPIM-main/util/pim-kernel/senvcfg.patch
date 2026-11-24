@@ -1,0 +1,18 @@
+gem5 PIM guest kernel: let user mode clean, flush and invalidate cache blocks.
+
+Linux 6.8 sets only senvcfg.CBZE (user cbo.zero). The PIM library's flush
+protocol runs cbo.clean and cbo.flush in user mode, so set CBCFE, and CBIE
+to 01 (cbo.inval runs as a flush), on every hart whose ISA has Zicbom.
+
+--- a/arch/riscv/kernel/cpufeature.c
++++ b/arch/riscv/kernel/cpufeature.c
+@@ -976,6 +976,9 @@ void riscv_user_isa_enable(void)
+ {
+ 	if (riscv_cpu_has_extension_unlikely(smp_processor_id(), RISCV_ISA_EXT_ZICBOZ))
+ 		csr_set(CSR_ENVCFG, ENVCFG_CBZE);
++	if (riscv_cpu_has_extension_unlikely(smp_processor_id(), RISCV_ISA_EXT_ZICBOM))
++		csr_set(CSR_ENVCFG, ENVCFG_CBCFE |
++			(ENVCFG_CBIE_FLUSH << ENVCFG_CBIE_SHIFT));
+ }
+
+ #ifdef CONFIG_RISCV_ALTERNATIVE

@@ -1,0 +1,8 @@
+# Ramulator 2.1 as an optional dynamic random-access memory (DRAM) back
+# end. The sources are in ext/ramulator2; the gem5 wrapper is in this
+# directory. Off by default: build/RISCV and build/ALL do not compile
+# anything of it. build_opts/RISCV_RAMULATOR2 turns it on.
+
+config USE_RAMULATOR2
+    bool "Ramulator 2.1 DRAM back end (ext/ramulator2)"
+    default n

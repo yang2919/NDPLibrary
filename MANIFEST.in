@@ -1,0 +1,5 @@
+include CMakeLists.txt
+recursive-include include *.hpp
+recursive-include src *.cpp *.hpp
+recursive-include bindings *.cpp *.hpp
+recursive-include examples *.cpp *.hpp

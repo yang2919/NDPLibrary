@@ -1,0 +1,72 @@
+# Ramulator 2.1 as an optional DRAM back end (Kconfig USE_RAMULATOR2).
+#
+# ext/ramulator2/SConscript declares the Ramulator 2.1, yaml-cpp and fmt
+# sources in env["RAMULATOR2"]; this file compiles them into the gem5
+# binary. Each of those files gets C++20 and its own include paths through
+# Source's per-file "append", so no other gem5 file sees these flags.
+# Objects are linked directly into gem5 (not through an archive), so
+# Ramulator 2.1's self-registering implementations are all kept.
+
+Import("*")
+
+if not env["CONF"].get("USE_RAMULATOR2"):
+    Return()
+
+r2 = env["RAMULATOR2"]
+cxx_std = [r2["cxx_std"]]
+
+for node in r2["ramulator_sources"]:
+    Source(
+        node,
+        append={"CXXFLAGS": cxx_std, "CPPPATH": r2["ramulator_cpppath"]},
+    )
+
+for node in r2["yaml_cpp_sources"]:
+    Source(
+        node,
+        append={
+            "CXXFLAGS": cxx_std,
+            "CPPPATH": r2["yaml_cpp_cpppath"],
+            "CPPDEFINES": r2["yaml_cpp_defines"],
+        },
+    )
+
+for node in r2["fmt_sources"]:
+    Source(node, append={"CXXFLAGS": cxx_std, "CPPPATH": r2["fmt_cpppath"]})
+
+# The gem5 wrapper: gem5's own C++17, plus Ramulator 2.1's headers.
+SimObject("Ramulator2VectorPorts.py", sim_objects=["Ramulator2VectorPorts"])
+wrapper_append = {"CPPPATH": r2["wrapper_cpppath"]}
+Source("ramulator2_base.cc", append=wrapper_append)
+Source("ramulator2_vector_ports.cc", append=wrapper_append)
+DebugFlag("Ramulator2")
+
+# The PIM memory (docs/pim/04r-ramulator-pim-plan.md sections 2 and 7).
+SimObject("PimRamulator2.py", sim_objects=["PimRamulator2"])
+Source("pim_ramulator2.cc", append=wrapper_append)
+Source("pim/pim_unloaded.cc", append=wrapper_append)
+
+# Processing-in-Memory (PIM) functional model, number formats and request
+# scopes (docs/pim/04r-ramulator-pim-plan.md section 7.1): plain gem5 C++,
+# no Ramulator 2.1 header.
+Source("pim/pim_numfmt.cc")
+Source("pim/pim_func.cc")
+Source("pim/pim_layout.cc")
+GTest("pim_numfmt.test", "pim/pim_numfmt.test.cc", "pim/pim_numfmt.cc")
+GTest(
+    "pim_func.test",
+    "pim/pim_func.test.cc",
+    "pim/pim_func.cc",
+    "pim/pim_numfmt.cc",
+)
+GTest("pim_scope.test", "pim/pim_scope.test.cc")
+GTest("pim_layout.test", "pim/pim_layout.test.cc", "pim/pim_layout.cc")
+# The sequencer's arbitration policies, header-only Ramulator 2.1 code
+# (ext/ramulator2/src/ramulator/pim/pim_arb.h; ext/ is on the include path).
+GTest("pim_arb.test", "pim/pim_arb.test.cc")
+
+# Ramulator 2.1's Python package (ext/ramulator2/python/ramulator), embedded
+# in the binary so that configurations can "import ramulator". The nodes are
+# in the build directory, so the embedded sources are generated there.
+for package, node in r2["python_sources"]:
+    PySource(package, node)

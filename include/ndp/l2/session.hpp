@@ -60,6 +60,7 @@ private:
   Event event_;
   std::shared_ptr<HostTensor> output_;
   friend class Session;
+  friend class DeviceGroup;
 };
 
 // Mutable dense storage. Reading creates an independent immutable Tensor snapshot.
@@ -101,10 +102,12 @@ public:
   Result<KernelPlan> query_operation(const OperationSpec &) const;
   // Return a private representation map sharing existing buffers; wait for requested layouts.
   Result<Tensor> prepare_layouts(const Tensor &, const std::vector<LayoutDesc> &);
-  Result<Tensor> matmul(const Tensor &a, const Tensor &b, OpOptions = {});
+  // Apply factor to the FP32 accumulator before rounding the output to FP16.
+  Result<Tensor> matmul(const Tensor &a, const Tensor &b, OpOptions = {}, float factor = 1);
   Result<Tensor> matvec(const Tensor &w, const Tensor &x, OpOptions = {Engine::PIM});
   Result<Tensor> linear(const Tensor &x, const Tensor &w, OpOptions = {},
                         const Tensor *bias = nullptr);
+  Result<Tensor> linear_partial(const Tensor &x, const Tensor &w, Engine engine = Engine::PIM);
   Result<Tensor> add(const Tensor &, const Tensor &, OpOptions = {});
   Result<Tensor> mul(const Tensor &, const Tensor &, OpOptions = {});
   Result<Tensor> rms_norm(const Tensor &, const Tensor &gamma, float epsilon = 1e-5f,
@@ -128,6 +131,9 @@ public:
   Result<DeviceCaps> capabilities() const;
 
 private:
+  friend class DeviceGroup;
+  bool owns(const Tensor &) const;
+  Result<Tensor> upload_dense(HostTensorView, std::shared_ptr<std::vector<std::byte>> staging);
   explicit Session(std::shared_ptr<detail::State> state) : state_(std::move(state)) {}
 
   Result<Tensor> compute(OpKind, const std::vector<Tensor> &, OpOptions, OpAttributes = {});

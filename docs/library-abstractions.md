@@ -1,5 +1,10 @@
 # NDP Library Object Abstractions
 
+The command backend preserves the public objects described here. Its private host
+builder translates existing KernelPlan metadata into PIM/PNM commands; the device
+emulator owns memory/register state and receives only explicit operands. No second
+Tensor hierarchy is introduced. See [the A6 backend guide](ndp-backend.md).
+
 This document describes the **implemented single-device C++ library**. It explains
 what each object represents, why it exists, who owns it, and which layer uses it.
 It is an abstraction reference; the [usage guide](using-ndp-library.md) follows a

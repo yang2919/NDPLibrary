@@ -5,9 +5,13 @@ A C++20 library for executing tensor operations on a single near-data processing
 The intended device combines a PNM processor with vector execution and scratchpad,
 and off-chip PIM memory with limited compute capabilities.
 
-**The current implementation runs on a CPU FunctionalBackend.** It validates API
-behavior, memory ownership, layouts, and numerical results. Real FPGA/simulator
-execution and Python/PyTorch bindings are not implemented.
+| L1 backend | Execution path | Selection |
+|---|---|---|
+| Functional | In-memory CPU reference for runtime and numerical tests | C++ and Python examples use it by default |
+| NDP | Builds commands and executes PNM kernels and PIM GEMV in a local emulator | C++ `--ndp` or `--ndp-config PATH`, Python `Session(backend="ndp", config=...)` |
+| gem5 | Uses the NDP command planner and sends commands to a separate software execution process over IPC | C++ gem5 factory and the Linux guest workflow |
+
+CENT is an external validation harness for PIM mapping and arithmetic. See the [NDP backend guide](docs/ndp-backend.md) and [gem5 integration plan](docs/gem5-integration-plan.md).
 
 Start with the [usage guide](docs/using-ndp-library.md) for a complete L2 matrix example
 and a decoder walkthrough matched to the C++ source.
@@ -34,13 +38,19 @@ include/ndp/                 src/
 │   types, FP16, layouts,    │   FP16 conversion and metadata validation
 │   operation descriptions  │
 ├── l1/                     ├── l1/
-│   backend.hpp             │   functional backend and host kernels
+│   backend.hpp             │   common/ (shared CPU implementation)
+│   functional/backend.hpp  │   functional/ (reference execution)
+│   ndp/backend.hpp         │   ndp/ (commands and emulator)
+│   gem5/backend.hpp        │   gem5/ (process transport)
 ├── l2/                     ├── l2/
 │   session.hpp, event.hpp  │   session runtime and private planner
 └── l3/                     └── l3/
     weight.hpp, llm.hpp,        weight preparation, cache, RoPE, attention,
     decoder.hpp                decoder composition
 ```
+
+`include/ndp/l1/backend.hpp` contains only the backend contract. Concrete factories
+live under `l1/functional/`, `l1/ndp/`, and `l1/gem5/`. L2 depends only on the contract.
 
 `common` contains shared data/operation contracts rather than runtime or model state.
 L1 depends on common contracts, L2 uses the backend interface, and L3 uses public L2
@@ -59,6 +69,15 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+Select an emulator profile at startup (run from the repository root):
+
+```sh
+./build/single_device_linear --ndp-config configs/ndp-small.ini
+./build/decoder_block --ndp-config configs/ndp-small.ini
+```
+
+Without backend arguments, examples retain the reference backend.
 
 To build examples without tests, configure with `-DBUILD_TESTING=OFF`.
 
@@ -159,11 +178,54 @@ not require output relayout. Actual hardware must satisfy or extend this contrac
 - Explicit `Session::close()` drains work and reports errors. The first execution
   error remains reportable even after successful buffer/cache recovery.
 
+## Python adapter
+
+With PyTorch, setuptools, wheel, and CMake already installed in the active environment:
+
+```sh
+python -m pip install . --no-build-isolation --no-deps
+python examples/python/linear.py
+python examples/python/decoder_block.py --ndp-config configs/ndp-small.ini
+```
+
+The package uses explicit `Session.upload`, resident `NdpTensor` operations, and
+`Session.download`. The decoder example implements the layer directly in Python.
+[Build/test instructions and contracts](docs/pytorch-integration.md) include the
+optional CMake extension target; the default C++ build has no Torch dependency.
+
 ## Current limits
 
-This is a single-device functional implementation, not an optimized serving system.
-There is no native hardware queue integration, multi-device execution, batching
-scheduler, paged cache, model importer, or generation API.
+The separate `make_ndp_backend(NdpSpec)` C++ factory now supports command-driven
+FP16 PIM GEMV and functional PNM operations through the existing Session API. It uses
+device-side layout conversion and memory/GB/MAC/GPR commands. PNM includes matrix,
+elementwise, normalization and data operations; it does not execute RISC-V binaries.
+The toy decoder now runs PNM prefill and PIM single-token projections with `--ndp`
+or `--ndp-config configs/ndp-small.ini`. No argument retains the reference backend.
+See [the A3 contract and limitations](docs/ndp-command-contract.md#a3-implementation-status-and-usage).
+
+Each Session manages one device. DeviceGroup supports synchronous dense tensor
+transfers between Sessions, and LlamaDecodeStack can place successive layers
+on independent workers. See the [PyTorch usage guide](docs/pytorch-integration.md).
+TensorParallelLinear supports output and input channel sharding.
+TensorParallelSwiGLU and TensorParallelLlamaAttention keep intermediate channels
+and whole KV groups resident, with FP32 host reduction at their output projections.
+TensorParallelLlamaDecodeBlock adds resident RMSNorm and residual operations
+for a complete single-token decoder layer. TensorParallelLlamaDecodeStack
+connects all layers through resident rows. TensorParallelLlamaForCausalLM
+provides single-sequence greedy generation, with CPU embedding/LM head and
+NDP decoder/final RMSNorm. Both stack and model support device_groups plus
+layer placement for sequential stages with TP inside each group. Independent
+new_request() histories share those weights and can be manually interleaved.
+GenerationScheduler provides bounded active histories, round-robin token steps
+and automatic terminal cache cleanup; see [request scheduling](docs/request-scheduling.md).
+Input-channel Linear preserves FP32 partials through host reduction. See
+[parallelism contracts and examples](docs/parallelism.md).
+PipelineGenerationScheduler overlaps contiguous TP stages across independent
+requests with thread-owned Sessions; see [pipeline execution](docs/pipeline-execution.md).
+Multi-token prefill uses PNM GEMM projections with bulk KV appends; decode
+remains PIM GEMV. See [prefill](docs/prefill.md).
+Microbatch fusion, paged cache, and native hardware
+queue integration remain open.
 
 L3 attention copies cache prefixes and constructs per-query/head intermediates.
 RoPE and attention store intermediate results in FP16, introducing additional
@@ -171,9 +233,9 @@ rounding and possible score overflow relative to fused FP32-intermediate kernels
 Current tests use small independent numerical references and explicit tolerances;
 they do not establish performance or accuracy for arbitrary full-scale models.
 
-PyTorch integration is a proposed adapter layer. Calling NDP explicitly from Python
-and supporting ordinary PyTorch device dispatch are different scopes; neither is
-implemented by the current C++ library.
+The optional PyTorch adapter supports explicit eager inference with CPU FP16 transfer
+boundaries. Native `.to("ndp")` dispatch, autograd, and torch.compile are not implemented.
+See the [Python usage guide](docs/pytorch-integration.md).
 
 ## Documentation
 
@@ -182,9 +244,30 @@ implemented by the current C++ library.
 | [Usage guide](docs/using-ndp-library.md) | Build/link instructions, L2 examples, and the decoder walkthrough |
 | [Object abstractions](docs/library-abstractions.md) | Responsibilities, ownership, lifetimes, and object relationships |
 | [Generic L2 migration](docs/generic-l2.md) | Buffer contracts, L2/L3 separation, and old-to-new API names |
-| [PyTorch integration design](docs/pytorch-integration.md) | Proposed bindings, data conversion, and compiler/device-backend limitations |
+| [PyTorch usage](docs/pytorch-integration.md) | Installation, Python runtime operations, decoder example, and current limits |
 | [Backend integration handoff](docs/backend-handoff.md) | Contracts a real simulator/FPGA adapter must satisfy |
+| [Command backend usage](docs/ndp-backend.md) | A6 decoder execution, configuration, supported operations and limitations |
+| [Execution/layout specification](docs/execution-layout-spec.md) | Layer ownership, bank/tile address rules, PIM schedule and PNM baseline |
+| [CENT conformance results](docs/cent-conformance-results.md) | Executed dimension matrix, numerical results and coverage limits |
+| [CENT reproduction guide](docs/cent-user-verification.md) | Build the exporter and run native CENT replay |
+| [CENT validation plan](docs/cent-validation-plan.md) | Production-command replay, dimension matrix and independent correctness checks |
+| [gem5 communication specification](docs/gem5-communication-spec.md) | AiMX-informed macro submission, address/wire schema, completion and target binding contract |
+| [Layer data flow](docs/layer-data-flow.md) | Allocation, transfers, command lowering, IPC data and completion across L2/L1/execution |
+| [PIM and memory packet reference (English)](docs/gem5-pim-packets.md) / [한국어](docs/gem5-pim-packets.ko.md) | PIM execution and common memory packets, with v2 command field layouts and replies |
+| [gem5 implementation handoff (English)](docs/gem5-extension-handoff.md) / [한국어](docs/gem5-extension-handoff.ko.md) | Receiver wire protocol, command bit layouts, response formats and complete packet examples |
+| [Stock FS external PyTorch verification](docs/gem5-k4-stock-fs-user-verification.md) | Two-terminal K4 procedure for guest reference GEMV |
+| [F5 user verification](docs/gem5-f5-user-verification.md) | Decoder FS procedure and pass criteria (user verification reported complete) |
+| [F5 decoder integration](docs/gem5-f5.md) | Explicit layer example, KV reset, reclamation and F0–F5 integration report |
+| [F4 user verification](docs/gem5-f4-user-verification.md) | Session lifecycle FS procedure and pass criteria (user verification reported complete) |
+| [F4 Session backend](docs/gem5-f4.md) | Owned receiver, existing NDP planner, completion and fault cleanup |
+| [F3 user verification](docs/gem5-f3-user-verification.md) | Persistent emulator FS run procedure (user verification reported complete) |
+| [F3 execution protocol](docs/gem5-f3.md) | Upload/submit/download, geometry handshake and native validation |
+| [F2 user verification](docs/gem5-f2-user-verification.md) | User-only FS run procedure, pass criteria and logs to report |
+| [F2 metadata IPC](docs/gem5-f2.md) | Metadata-only IPC; FS verification reported complete by the user |
+| [Command transport and codec](docs/command-transport.md) | F1 abstractions, versioned wire fields and native validation |
+| [gem5 integration plan](docs/gem5-integration-plan.md) | Pure FS guest IPC and software emulation milestones (F0–F5) |
+| [Stock gem5 FS baseline](docs/gem5-fs.md) | User-run FS commands, expected results and failure reporting; assistant validation stays native |
+| [NDP command contract and status](docs/ndp-command-contract.md) | Unified PIM/functional PNM commands, A1–A6 status, memory and completion rules |
 
-See [the cleanup review](docs/code-review-cleanup.md) for retained and removed code.
 Earlier design and milestone documents under `docs/` are historical records;
 the usage and abstraction guides describe the current API.

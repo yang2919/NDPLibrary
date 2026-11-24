@@ -1,0 +1,13 @@
+# Vivado build artifacts, if someone builds inside this tree
+build/
+*.jou
+*.log
+.Xil/
+*.cache/
+*.runs/
+*.gen/
+*.hw/
+*.ip_user_files/
+*.srcs/
+*.str
+vivado*.backup.*

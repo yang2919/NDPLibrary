@@ -1,0 +1,21 @@
+# One run per line: gem5 riscv-pim.py options and the program's arguments.
+# policy empty = RoRaBaChCo (the default layout headers).
+# extra: further riscv-pim.py options; --no-posted acknowledges every
+# PIM request only when it has executed (a cross-check of the barrier).
+name,memory,cpu,ab_mode,policy,args,extra
+lpddr6-o3,lpddr6,o3,baseline,,262144,
+ddr5-o3,ddr5,o3,baseline,,262144,
+gddr7-o3,gddr7,o3,baseline,,262144,
+hbm4-o3,hbm4,o3,baseline,,262144,
+lpddr6-o3-ideal,lpddr6,o3,ideal,,262144,
+lpddr6-o3-aim,lpddr6,o3,aim,,262144,
+lpddr6-o3-aespa,lpddr6,o3,aespa,,262144,
+lpddr6-timing,lpddr6,timing,baseline,,262144,
+lpddr6-o3-noposted,lpddr6,o3,baseline,,262144,--no-posted
+ddr5-o3-noposted,ddr5,o3,baseline,,262144,--no-posted
+gddr7-o3-noposted,gddr7,o3,baseline,,262144,--no-posted
+hbm4-o3-noposted,hbm4,o3,baseline,,262144,--no-posted
+lpddr6-o3-ideal-noposted,lpddr6,o3,ideal,,262144,--no-posted
+lpddr6-o3-aim-noposted,lpddr6,o3,aim,,262144,--no-posted
+lpddr6-o3-aespa-noposted,lpddr6,o3,aespa,,262144,--no-posted
+lpddr6-timing-noposted,lpddr6,timing,baseline,,262144,--no-posted

@@ -19,10 +19,11 @@ enum class OpKind {
 };
 
 struct OpAttributes {
+  DType output_dtype = DType::F16; // FP32 output is supported by partial Linear kernels.
   float epsilon = 1e-5f;
   int axis = -1;
   std::vector<uint64_t> indices;
-  float factor = 1;
+  float factor = 1; // Scale operand, or Matmul FP32 accumulator before output conversion.
   std::vector<uint64_t> shape;
   bool operator==(const OpAttributes &) const = default;
 };

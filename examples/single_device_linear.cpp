@@ -1,4 +1,5 @@
 // Run PNM and PIM linear operations with shared prepared weights and report results and memory use.
+#include "backend_options.hpp"
 #include "ndp/common/fp16.hpp"
 #include "ndp/l2/session.hpp"
 
@@ -6,11 +7,15 @@
 #include <cstring>
 #include <iostream>
 
-int main() {
+int main(int argc, char **argv) {
   constexpr size_t device_memory_bytes = 4096;
   constexpr size_t scratchpad_bytes = 64;
-  auto created =
-      ndp::Session::create(ndp::make_functional_backend(device_memory_bytes, scratchpad_bytes));
+  auto backend = ndp::example::backend_from_args(argc, argv, device_memory_bytes, scratchpad_bytes);
+  if (!backend) {
+    std::cerr << backend.error().message << '\n';
+    return 1;
+  }
+  auto created = ndp::Session::create(std::move(backend.value()));
   if (!created) {
     std::cerr << "Session creation failed: " << created.error().message << '\n';
     return 1;

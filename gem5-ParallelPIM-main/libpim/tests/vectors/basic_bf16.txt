@@ -1,0 +1,157 @@
+# Every PIM command once, bf16 operands and an fp32 accumulator, on a
+# small RoRaBaChCo memory: 2 channels, 2 bank groups x 2 banks, 16 rows
+# of 4 columns of 8 bytes (4 bf16 per column, 16 per row). REG_ROW0 = 14,
+# the accumulator row is 15; VLMAX = 8 x vlenb = 16 bytes. Results
+# computed by hand.
+
+geom policy=0 channels=2 intlv=32 units=1 sids=1 bgs=2 banks=2 rows=16 cols=4 col_bytes=8 num_regs=1 num_fmt=bf16 acc_fmt=fp32 vlenb=2
+
+# pim.wr.gb and pim.rd.gb: byte exact, per unit.
+cmd pim.wr.gb ch=1 bf16 1 2 3 4 5 6 7 8
+expect gb ch=1 bf16 1 2 3 4 5 6 7 8 0 0 0 0 0 0 0 0
+expect gb ch=0 bf16 0 0 0 0
+cmd pim.rd.gb ch=1 bytes=16
+expect read bf16 1 2 3 4 5 6 7 8
+cmd pim.rd.gb ch=1 col=0 byte=4 bytes=8
+expect read bf16 3 4 5 6
+expect count pim.wr.gb 1
+expect count pim.rd.gb 2
+
+# pim.sb.mov.bkgbuf: two columns of a bank row into the GB.
+row ch=0 bg=1 bank=0 row=3 bf16 10 11 12 13 14 15 16 17
+cmd pim.sb.mov.bkgbuf ch=0 bg=1 bank=0 row=3 bytes=16
+expect gb ch=0 bf16 10 11 12 13 14 15 16 17 0 0 0 0 0 0 0 0
+
+# pim.sb.mov.gbufbk: GB column 1 into column 1 of another bank row.
+cmd pim.sb.mov.gbufbk ch=0 bg=0 bank=1 row=4 col=1 bytes=8
+expect row ch=0 bg=0 bank=1 row=4 bf16 0 0 0 0 14 15 16 17 0 0 0 0
+
+# pim.sb.ewadd (scalar): banks 0 and 1 of bank group 0, into register 0
+# of bank 0's PU; one column, then from column 2 to the end of the row.
+row ch=0 bg=0 bank=0 row=2 bf16 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+row ch=0 bg=0 bank=1 row=2 bf16 0.5 0.5 0.5 0.5 1 1 1 1 2 2 2 2 4 4 4 4
+cmd pim.sb.ewadd ch=0 bg=0 bank=0 row=2 col=0 ncols=1
+expect reg ch=0 bg=0 bank=0 j=0 bf16 1.5 2.5 3.5 4.5 0 0 0 0 0 0 0 0
+cmd pim.sb.ewadd ch=0 bg=0 bank=0 row=2 col=2 ncols=0
+expect reg ch=0 bg=0 bank=0 j=0 bf16 1.5 2.5 3.5 4.5 0 0 0 0 11 12 13 14 17 18 19 20
+
+# pim.sb.ewmul: fp32 products rounded to bf16. 0x3f81 = 1.0078125;
+# its square 1.01568603515625 rounds to 0x3f82 (1.015625).
+row ch=0 bg=1 bank=0 row=5 bf16 0x3f81 3 -2 0.25
+row ch=0 bg=1 bank=1 row=5 bf16 0x3f81 0.5 -2 8
+cmd pim.sb.ewmul ch=0 bg=1 bank=0 row=5 col=0 ncols=1
+expect reg ch=0 bg=1 bank=0 j=0 bf16 0x3f82 1.5 4 2
+
+# pim.sb.ewadd.gbuf and pim.sb.ewmul.gbuf: GB with an odd bank's row.
+gb ch=0 bf16 1 2 3 4 5 6 7 8
+row ch=0 bg=1 bank=1 row=6 bf16 10 20 30 40 0.5 0.5 0.5 0.5
+cmd pim.sb.ewadd.gbuf ch=0 bg=1 bank=1 row=6 col=0 ncols=1
+expect reg ch=0 bg=1 bank=1 j=0 bf16 11 22 33 44 0 0 0 0
+cmd pim.sb.ewmul.gbuf ch=0 bg=1 bank=1 row=6 col=1 ncols=1
+expect reg ch=0 bg=1 bank=1 j=0 bf16 11 22 33 44 2.5 3 3.5 4
+
+# pim.sb.mac: one accumulator update per column. Column 0: 1+2+3+4 = 10;
+# column 1: 2 x (5+6+7+8) = 52; accumulator 62.
+gb ch=0 bf16 1 1 1 1 2 2 2 2
+row ch=0 bg=0 bank=1 row=7 bf16 1 2 3 4 5 6 7 8
+cmd pim.sb.mac ch=0 bg=0 bank=1 row=7 col=0 ncols=2
+expect acc ch=0 bg=0 bank=1 fp32 62
+# The accumulator row: the fp32 accumulator, then zeros.
+cmd pim.rd.reg ch=0 bg=0 bank=1 row=acc bytes=8
+expect read fp32 62 0
+
+# MAC order: the products 2^24, 1, 1, 1 summed in fp32 in ascending
+# order stay 2^24 (each + 1 rounds to even); a later column adds 4
+# (2^24 + 4 = 0x4b800002, the fp32 spacing being 2 there).
+acc ch=1 bg=0 bank=0 fp32 0
+gb ch=1 bf16 1 1 1 1 1 1 1 1
+row ch=1 bg=0 bank=0 row=9 bf16 0x4b80 1 1 1 1 1 1 1
+cmd pim.sb.mac ch=1 bg=0 bank=0 row=9 col=0 ncols=1
+expect acc ch=1 bg=0 bank=0 fp32 0x4b800000
+cmd pim.sb.mac ch=1 bg=0 bank=0 row=9 col=1 ncols=1
+expect acc ch=1 bg=0 bank=0 fp32 0x4b800002
+
+# pim.ab.ewadd (vector): every even bank with its pair, one column.
+row ch=0 bg=0 bank=0 row=8 bf16 1 1 1 1
+row ch=0 bg=0 bank=1 row=8 bf16 2 3 4 5
+row ch=0 bg=1 bank=0 row=8 bf16 10 10 10 10
+row ch=0 bg=1 bank=1 row=8 bf16 0.5 0.25 0.125 1
+cmd pim.ab.ewadd ch=0 row=8 col=0 bytes=8
+expect reg ch=0 bg=0 bank=0 j=0 bf16 3 4 5 6
+expect reg ch=0 bg=1 bank=0 j=0 bf16 10.5 10.25 10.125 11
+# The odd banks' registers are unchanged.
+expect reg ch=0 bg=0 bank=1 j=0 bf16 0 0 0 0
+
+# pim.ab.ewmul.gbuf: every bank times the shared GB, columns 0-1.
+gb ch=0 bf16 2 2 2 2 -1 -1 -1 -1
+cmd pim.ab.ewmul.gbuf ch=0 row=8 col=0 bytes=16
+# Column 1 of row 8 is zero, and -1 x 0 is -0.
+expect reg ch=0 bg=0 bank=0 j=0 bf16 2 2 2 2 -0 -0 -0 -0
+expect reg ch=0 bg=0 bank=1 j=0 bf16 4 6 8 10 -0 -0 -0 -0
+expect reg ch=0 bg=1 bank=1 j=0 bf16 1 0.5 0.25 2 -0 -0 -0 -0
+
+# pim.ab.ewadd.gbuf and pim.ab.ewmul: the remaining compute forms.
+cmd pim.ab.ewadd.gbuf ch=0 row=8 col=0 bytes=8
+expect reg ch=0 bg=1 bank=1 j=0 bf16 2.5 2.25 2.125 3 -0 -0 -0 -0
+cmd pim.ab.ewmul ch=0 row=8 col=0 bytes=8
+expect reg ch=0 bg=0 bank=0 j=0 bf16 2 3 4 5
+expect reg ch=0 bg=1 bank=0 j=0 bf16 5 2.5 1.25 10
+
+# pim.ab.mac on channel 1: every bank's accumulator, one update per
+# column; banks 1-3 start at zero (bank 0 holds 2^24 + 4 from above).
+gb ch=1 bf16 1 2 3 4 1 1 1 1
+row ch=1 bg=0 bank=1 row=10 bf16 1 1 1 1 1 1 1 1
+row ch=1 bg=1 bank=0 row=10 bf16 2 2 2 2 0 0 0 0
+row ch=1 bg=1 bank=1 row=10 bf16 1 0 0 0 0 0 0 4
+cmd pim.ab.mac ch=1 row=10 col=0 bytes=16
+expect acc ch=1 bg=0 bank=1 fp32 14
+expect acc ch=1 bg=1 bank=0 fp32 20
+expect acc ch=1 bg=1 bank=1 fp32 5
+expect acc ch=1 bg=0 bank=0 fp32 0x4b800002
+expect count pim.ab.mac 1
+
+# pim.ab.mov.bkreg then pim.ab.mov.regbk: row 10 into register 0 of
+# every bank, then the registers into row 11.
+cmd pim.ab.mov.bkreg ch=1 row=10 col=0 bytes=16
+expect reg ch=1 bg=1 bank=0 j=0 bf16 2 2 2 2 0 0 0 0
+cmd pim.ab.mov.regbk ch=1 row=11 col=0 bytes=16
+expect row ch=1 bg=1 bank=1 row=11 bf16 1 0 0 0 0 0 0 4
+expect row ch=1 bg=0 bank=1 row=11 bf16 1 1 1 1 1 1 1 1
+
+# pim.wr.reg and pim.rd.reg: register row 0 of a PU, and the accumulator
+# row (bytes past the fp32 accumulator are ignored and read as zero).
+cmd pim.wr.reg ch=1 bg=1 bank=1 row=reg0 col=2 bf16 7 8 9 10
+expect reg ch=1 bg=1 bank=1 j=0 col=2 bf16 7 8 9 10
+cmd pim.rd.reg ch=1 bg=1 bank=1 row=reg0 col=2 bytes=8
+expect read bf16 7 8 9 10
+cmd pim.wr.reg ch=1 bg=1 bank=1 row=acc fp32 5 7
+expect acc ch=1 bg=1 bank=1 fp32 5
+cmd pim.rd.reg ch=1 bg=1 bank=1 row=acc bytes=8
+expect read fp32 5 0
+# Writing zeros resets an accumulator.
+cmd pim.wr.reg ch=1 bg=1 bank=0 row=acc fp32 0
+expect acc ch=1 bg=1 bank=0 fp32 0
+
+# vl = min(bytes, VLMAX = 16): a 100-byte request covers 16 bytes, and
+# vl = 0 issues nothing.
+cmd pim.rd.gb ch=1 bytes=100
+expect count pim.rd.gb 3
+cmd pim.ab.mac ch=1 row=10 bytes=0
+expect count pim.ab.mac 1
+
+# Software errors, counted.
+errors count
+cmd pim.sb.ewadd ch=0 bg=0 bank=1 row=2 col=0 ncols=1
+cmd pim.sb.mac ch=0 bg=0 bank=0 row=reg0 col=0 ncols=1
+cmd pim.sb.mac ch=0 bg=0 bank=0 row=1 col=0 ncols=0x10000
+cmd pim.sb.mac ch=0 bg=0 bank=0 row=1 col=0 byte=4 ncols=1
+cmd pim.sb.mac ch=0 bg=0 bank=0 row=1 col=3 ncols=2
+cmd pim.rd.reg ch=0 bg=0 bank=0 row=3 bytes=8
+cmd pim.sb.mov.bkgbuf ch=0 bg=0 bank=0 row=1 col=3 bytes=16
+cmd pim.ab.ewadd.gbuf ch=0 row=1 col=0 byte=1 bytes=4
+cmd pim.ab.ewmul ch=0 bank=1 row=1 bytes=8
+expect errors 9
+# A failed load returns zeros; an erroneous command changes nothing.
+expect read bf16 0 0 0 0
+expect reg ch=0 bg=0 bank=0 j=0 bf16 2 3 4 5
+errors fatal

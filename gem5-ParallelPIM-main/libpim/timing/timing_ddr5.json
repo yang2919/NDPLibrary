@@ -1,0 +1,244 @@
+{
+  "format": 1,
+  "standard": "DDR5",
+  "presets": {
+    "org": "DDR5_16Gb_x8",
+    "timing": "DDR5_4800AN",
+    "org_overrides": {},
+    "channels": 4
+  },
+  "clock": {
+    "tCK_ps": 416,
+    "tick_multiplier": 1
+  },
+  "geometry": {
+    "unit": "Rank",
+    "units_per_channel": 1,
+    "banks_per_unit": 32,
+    "bank_groups": 8,
+    "cols_per_row": 64,
+    "col_bytes": 64
+  },
+  "command_cycles": {
+    "ACT": 2,
+    "act_phases": 1,
+    "column": 2,
+    "PREpb": 1,
+    "PREab": 1,
+    "REFab": 1,
+    "ACTab": 2
+  },
+  "read_latency": {
+    "rule": "nCL + nBL",
+    "value": 42
+  },
+  "host": {
+    "rate": 4800,
+    "nBL": 8,
+    "nCL": 34,
+    "nRCD": 34,
+    "nRP": 34,
+    "nRAS": 77,
+    "nRC": 111,
+    "nWR": 72,
+    "nRTP": 18,
+    "nCWL": 32,
+    "nPPD": 2,
+    "nCCDS": 8,
+    "nCCDL": 12,
+    "nCCDS_WR": 8,
+    "nWTRS": 6,
+    "nWTRL": 24,
+    "tCK_ps": 416,
+    "nCS": 2,
+    "nRRDS": 8,
+    "nRRDL": 12,
+    "nFAW": 32,
+    "nRFC": 708,
+    "nREFI": 9375,
+    "nRFCsb": 312,
+    "nRFM": 708,
+    "nRFMsb": 312,
+    "nREFSBRD": 72,
+    "nCCDL_WR": 24,
+    "nCCDM": 12,
+    "nCCDM_WR": 48,
+    "nWTRM": 24,
+    "nRTW": 14
+  },
+  "host_overrides": {},
+  "pim": {
+    "nRCD_AB": {
+      "value": 34,
+      "rule": "nRCD",
+      "source": "the host value of the per-bank command pair"
+    },
+    "nRCDW_AB": {
+      "value": 34,
+      "rule": "nRCD",
+      "source": "the host value of the per-bank command pair"
+    },
+    "nRAS_AB": {
+      "value": 77,
+      "rule": "nRAS",
+      "source": "the host value of the per-bank command pair"
+    },
+    "nRP_AB": {
+      "value": 34,
+      "rule": "nRP",
+      "source": "the host value of the per-bank command pair"
+    },
+    "nRRD_AB": {
+      "value": 8,
+      "rule": "nRRDS",
+      "source": "the host value of the per-bank command pair; the all-bank ACT does not count against tFAW"
+    },
+    "nCCD_AB": {
+      "value": 12,
+      "rule": "nCCDL",
+      "source": "an AB column is spaced as an SB one: same-bank read gap"
+    },
+    "nCCDW_AB": {
+      "value": 24,
+      "rule": "nCCDL_WR",
+      "source": "an AB column is spaced as an SB one: same-bank write gap"
+    },
+    "nAB2PRE_RD": {
+      "value": 18,
+      "rule": "nRTP",
+      "source": "the host value of the per-bank command pair"
+    },
+    "nAB2PRE_WR": {
+      "value": 112,
+      "rule": "nCWL + nBL + nWR",
+      "source": "the host value of the per-bank command pair"
+    },
+    "nCL_GB": {
+      "value": 34,
+      "rule": "nCL",
+      "source": "non-bank commands carry host data: the host latency and tCCD_S"
+    },
+    "nCL_REG": {
+      "value": 34,
+      "rule": "nCL",
+      "source": "non-bank commands carry host data: the host latency and tCCD_S"
+    },
+    "nCWL_GB": {
+      "value": 32,
+      "rule": "nCWL",
+      "source": "non-bank commands carry host data: the host latency and tCCD_S"
+    },
+    "nCWL_REG": {
+      "value": 32,
+      "rule": "nCWL",
+      "source": "non-bank commands carry host data: the host latency and tCCD_S"
+    },
+    "nCCD_NB": {
+      "value": 8,
+      "rule": "nCCDS",
+      "source": "non-bank commands carry host data: the host latency and tCCD_S"
+    },
+    "nEX_AB_RD": {
+      "value": 18,
+      "rule": "nRTP",
+      "source": "a read is done when its data leave the sense amplifiers (tRTP), as nAB2PRE_RD"
+    },
+    "nEX_AB_WR": {
+      "value": 40,
+      "rule": "nCWL + nBL",
+      "source": "a write is done when its data are in the sense amplifiers, without write recovery"
+    },
+    "nSB_RD_DONE": {
+      "value": 18,
+      "rule": "nRTP",
+      "source": "a read is done when its data leave the sense amplifiers (tRTP), as an AB read"
+    },
+    "nSB_WR_DONE": {
+      "value": 40,
+      "rule": "nCWL + nBL",
+      "source": "a write is done when its data are in the sense amplifiers"
+    }
+  },
+  "derived": {
+    "act_phase": 0,
+    "rcd_rd": 34,
+    "rcd_wr": 34,
+    "rcd_ab": 34,
+    "rcdw_ab": 34,
+    "act_to_col_edge": 0,
+    "sb_rd_spacing": 12,
+    "sb_wr_spacing": 24,
+    "pim_branch": 8,
+    "ab_rd_spacing": 12,
+    "ab_wr_spacing": 24,
+    "pair_act": 12,
+    "nb_sync": 0,
+    "nb_spacing": 8,
+    "nb_rd_extra": 0,
+    "burst": 8,
+    "command_slot": 2,
+    "issue_offset": 2
+  },
+  "U_clocks": {
+    "sb_rd": {
+      "1": 52,
+      "2": 64,
+      "64": 808
+    },
+    "sb_rd2": {
+      "1": 64,
+      "2": 76,
+      "64": 820
+    },
+    "sb_wr": {
+      "1": 74,
+      "2": 98,
+      "64": 1586
+    },
+    "ab_rd_ideal": {
+      "1": 52,
+      "2": 64,
+      "64": 808
+    },
+    "ab_wr_ideal": {
+      "1": 74,
+      "2": 98,
+      "64": 1586
+    },
+    "ab_rd_baseline": {
+      "1": 396,
+      "2": 408,
+      "64": 1152
+    },
+    "ab_wr_baseline": {
+      "1": 418,
+      "2": 442,
+      "64": 1930
+    },
+    "ab_rd_aespa": {
+      "1": 396,
+      "2": 580,
+      "64": 16452
+    },
+    "ab_ew_aespa": {
+      "1": 396,
+      "2": 408,
+      "64": 8272
+    },
+    "ab_wr_aespa": {
+      "1": 526,
+      "2": 770,
+      "64": 18746
+    },
+    "nb_ld": {
+      "1": 42,
+      "2": 50,
+      "64": 546
+    },
+    "nb_st": {
+      "1": 40,
+      "2": 48,
+      "64": 544
+    }
+  }
+}

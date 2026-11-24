@@ -1,0 +1,95 @@
+# gem5 build description for Ramulator 2.1 (added for gem5; see README.gem5).
+#
+# gem5's SConstruct runs every SConscript under ext/ before src/SConscript,
+# which is where Source and PySource are defined. So this file only declares
+# the file lists and compiler settings, in env["RAMULATOR2"];
+# src/mem/ramulator2/SConscript compiles them into the gem5 binary.
+#
+# Nothing happens unless the Kconfig option USE_RAMULATOR2 is set
+# (build_opts/RISCV_RAMULATOR2).
+#
+# The lists mirror upstream's CMake build (CMakeLists.txt and the
+# CMakeLists.txt files under src/ramulator/):
+# - Ramulator 2.1: every *.cpp under src/ramulator/ except src/ramulator/python/
+#   (the nanobind bindings), compiled as C++20;
+# - yaml-cpp: ext/yaml-cpp/src/*.cpp, without contrib/ (YAML_CPP_BUILD_CONTRIB
+#   is OFF in CMakeLists.txt), with YAML_CPP_NO_CONTRIB and
+#   YAML_CPP_STATIC_DEFINE;
+# - fmt: ext/fmt/src/format.cc and os.cc (not the C++ module file fmt.cc).
+# - the Python package python/ramulator (88 files at c6c7a5d), embedded in the
+#   binary with its package names; SCons never runs the code generator.
+# The source list is a glob, so new Ramulator 2.1 files are compiled without an
+# edit here. After an upstream update, check that the glob still equals the
+# CMake lists (README.gem5).
+
+import os
+
+Import("env")
+
+if not env["CONF"].get("USE_RAMULATOR2"):
+    Return()
+
+src_root = Dir(".").srcnode().abspath
+
+
+def variant_files(subdir, suffix, recursive=True, exclude=()):
+    """Variant-directory nodes of the files under subdir, sorted by path."""
+    found = []
+    top = os.path.join(src_root, subdir)
+    for dirpath, dirnames, filenames in os.walk(top):
+        rel_dir = os.path.relpath(dirpath, src_root)
+        if not recursive:
+            dirnames[:] = []
+        dirnames[:] = sorted(
+            d for d in dirnames if os.path.join(rel_dir, d) not in exclude
+        )
+        for name in sorted(filenames):
+            if name.endswith(suffix):
+                found.append(File(os.path.join(rel_dir, name)))
+    return found
+
+
+def include_dir(subdir):
+    return os.path.join(src_root, subdir)
+
+
+env["RAMULATOR2"] = {
+    "ramulator_sources": variant_files(
+        "src/ramulator", ".cpp", exclude=("src/ramulator/python",)
+    ),
+    "yaml_cpp_sources": variant_files(
+        "ext/yaml-cpp/src", ".cpp", recursive=False
+    ),
+    "fmt_sources": [File("ext/fmt/src/format.cc"), File("ext/fmt/src/os.cc")],
+    # Include directories, as CMake passes them to each group.
+    "ramulator_cpppath": [
+        include_dir("ext/yaml-cpp/include"),
+        include_dir("ext/fmt/include"),
+        include_dir("src"),
+    ],
+    "yaml_cpp_cpppath": [
+        include_dir("ext/yaml-cpp/include"),
+        include_dir("ext/yaml-cpp/src"),
+    ],
+    "yaml_cpp_defines": ["YAML_CPP_NO_CONTRIB", "YAML_CPP_STATIC_DEFINE"],
+    "fmt_cpppath": [
+        include_dir("ext/yaml-cpp/include"),
+        include_dir("ext/fmt/include"),
+    ],
+    # The gem5 wrapper is C++17 and needs only Ramulator 2.1's headers.
+    "wrapper_cpppath": [include_dir("src")],
+    "cxx_std": "-std=c++20",
+}
+
+
+def python_package_files(subdir):
+    """(package, variant node) for each Python file of a package tree."""
+    python_root = os.path.join(src_root, "python")
+    found = []
+    for node in variant_files(subdir, ".py"):
+        rel = os.path.relpath(node.srcnode().abspath, python_root)
+        found.append((os.path.dirname(rel).replace(os.sep, "."), node))
+    return found
+
+
+env["RAMULATOR2"]["python_sources"] = python_package_files("python/ramulator")

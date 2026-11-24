@@ -1,0 +1,6 @@
+# Built by scripts/build.sh.
+*/bin/
+*/*/bin/
+# Outputs of scripts/run.sh, scripts/collect.sh and scripts/check.sh.
+*/results/
+*/*/results/

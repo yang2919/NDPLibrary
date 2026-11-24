@@ -1,4 +1,5 @@
 // Verify packed layout mapping, padding, reuse, failures, and allocation boundaries.
+#include "ndp/l1/functional/backend.hpp"
 #include "ndp/l2/session.hpp"
 
 #include <atomic>

@@ -22,10 +22,15 @@ struct DeviceCaps {
 class IBackend {
 public:
   virtual ~IBackend() = default;
+  virtual bool supports_storage(DType dtype) const { return dtype == DType::F16; }
   virtual DeviceCaps capabilities() const = 0;
   virtual Result<AllocationHandle> allocate(size_t bytes) = 0;
   virtual void release(AllocationHandle) noexcept = 0;
   virtual Result<void> upload(AllocationHandle, std::span<const std::byte>) = 0;
+  virtual Result<void> upload_typed(AllocationHandle h, std::span<const std::byte> data, DType dtype) {
+    if (dtype != DType::F16) return Status{ErrorCode::UnsupportedDType, "Backend requires FP16 uploads"};
+    return upload(h, data);
+  }
   virtual Result<void> download(AllocationHandle, std::span<std::byte>) = 0;
 
   // Metadata-only, thread-safe queries: may run while a transfer is executing.
@@ -70,6 +75,4 @@ public:
   virtual Result<void> shutdown() = 0;
 };
 
-std::unique_ptr<IBackend> make_functional_backend(size_t capacity_bytes,
-                                                  size_t scratchpad_bytes = 4096);
 } // namespace ndp

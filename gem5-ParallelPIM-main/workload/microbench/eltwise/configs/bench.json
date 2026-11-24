@@ -1,0 +1,5 @@
+{
+  "program": "eltwise-bench",
+  "sources": ["src/eltwise_bench.c"],
+  "speedups": [["cpu-rvv-add", "pim-add"], ["cpu-scalar-add", "pim-add"]]
+}

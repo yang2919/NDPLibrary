@@ -1,271 +1,726 @@
-# Connecting NDP Library to PyTorch
+# Using NDP Library from PyTorch
 
-This is an implementation design, not an available Python API. The repository
-currently contains a C++ library, examples, and functional tests; it has no Python
-bindings, registered PyTorch operators, autograd formulas, or PyTorch device backend.
-The Python snippets below describe the proposed interface and are not runnable yet.
+## Inference with ordinary PyTorch tensors
 
-## Assessment and recommended first interface
-
-**Keep the current Session/Tensor core for explicit, inference-only integration.**
-Its managed handles, per-operation options, and persistent weights/cache can support
-Python orchestration without copying every intermediate to the host. Add an adapter
-layer that accepts CPU PyTorch tensors at the boundaries and exposes NDP handles
-between operations.
-
-This does **not** make an unchanged Hugging Face model run on NDP. If the requirement
-is `model.to("ndp")` followed by ordinary PyTorch operations, the present API is
-insufficient. That objective requires a device backend and substantially more tensor
-semantics. Choose the intended integration level before committing to that work.
-
-| Integration level | User experience | Fit with the current implementation |
-|---|---|---|
-| Explicit Python bindings, eager execution | `session.linear(ndp_input, prepared_weight, options)` | Recommended first milestone; preserve the C++ runtime |
-| Registered custom operators at a region boundary | A PyTorch Tensor enters an NDP region and a PyTorch Tensor leaves | Feasible additional layer; state and compiler contracts need design |
-| Native PyTorch device | Ordinary tensor operations dispatch to NDP | Requires allocator/storage, dispatch, copy, views, device management, and other backend work |
-
-PyTorch distinguishes calling an external function from registering an operator that
-participates in its dispatcher and transformation systems. A pybind11 method alone
-does not provide those contracts. See the official
-[custom operator overview](https://docs.pytorch.org/tutorials/advanced/custom_ops_landing_page.html).
-
-## L2/L3 ownership boundary
-
-The core `ndp` target now provides generic immutable Tensor values and mutable
-DeviceBuffer storage. The optional `ndp_llm` target provides cache policy, RoPE,
-attention, and decoder composition through public L2 APIs. PreparedWeight and its preparation policy also live in L3; L2 linear accepts only
-Tensor handles. Bind generic query_operation/prepare_layouts in L2 and the free
-prepare_weight helper in L3. Bind L2 first; L3 can be
-wrapped from C++ or implemented in Python on the same generic buffer API.
-`copy_into` writes a buffer; `snapshot` returns an independent immutable Tensor.
-Do not model a snapshot as a PyTorch view or in-place alias. See
-[the migration contract](generic-l2.md) for ordering and failure recovery.
-
-## Mapping the existing objects to Python
-
-| Existing C++ type/API | Proposed Python representation | Adapter responsibility |
-|---|---|---|
-| `Session` | Owning Python Session wrapper | Own the move-only Session, serialize submissions, expose explicit close/context manager |
-| `Tensor` | `NdpTensor` wrapper | Keep the native handle and owning Session wrapper alive; expose shape, dtype, wait |
-| L3 `PreparedWeight` | `PreparedWeight` wrapper | Retain prepared device storage; do not upload again on every forward |
-| `DeviceBuffer` | Explicit mutable storage wrapper | Expose checked copy/clear and copying snapshot; retain Session owner |
-| L3 `KVCache` | Per-request, per-layer cache wrapper | Retain owner, expose lengths/reset, prevent accidental sharing across requests |
-| `OpOptions` | Engine and layout-policy enums/options | Translate directly; retain per-operation control |
-| `Event`, `HostTransfer` | Completion/transfer wrappers | Translate failures when waiting and retain pending host output |
-| `Result<T>` / `Status` | Return a value or raise an exception | Preserve error code and operation context; never expose unchecked `.value()` |
-
-`NdpTensor` is an opaque device handle, **not a subclass of `torch.Tensor`** in this
-first interface. `torch.add(ndp_tensor, ...)` is unsupported; callers use
-`session.add(...)`. A prepared weight is not an `nn.Parameter`. The library is
-inference-only and does not implement optimizer updates or backward computation.
-
-Python wrappers should retain a strong reference to their owning Session wrapper.
-The native runtime already retains buffers for queued work; the Python reference
-also makes connection lifetime explicit. Explicit `close()` invalidates future
-submissions even if handles remain alive. Reject cross-Session operands as C++ does.
-
-## Host Tensor conversion: an explicit copying boundary
-
-Implement two adapter entry points, for example `Session.upload(torch_tensor)` and
-`Session.download(ndp_tensor)`. These names are proposed, not existing C++ methods.
-
-### Upload
-
-1. Require a CPU `torch.Tensor`, dtype `torch.float16`, supported nonempty dimensions,
-   and `requires_grad == False`. Initially reject CUDA tensors and other dtypes with
-   an actionable error; the caller can explicitly convert them.
-2. Obtain contiguous row-major data with `.contiguous()` when needed. The current
-   NDP API carries shape but not arbitrary strides or storage offsets.
-3. Build `TensorDesc` and `HostTensorView` from the contiguous tensor's shape and
-   byte span. Validate byte counts and integer conversions.
-4. Call `Session::from_host`. It copies into owned staging before returning, so the
-   adapter need not keep the temporary CPU tensor alive after that call completes.
-5. Return an `NdpTensor`; execution may still be pending.
-
-FP16 storage already matches the library's binary16 contract. Copy bytes, not a
-float32 reinterpretation. This boundary is not zero-copy: contiguous conversion
-may allocate, staging copies, and backend upload transfers data again.
-
-### Download
-
-Call `Session::to_host`, check completion, allocate a contiguous CPU FP16 PyTorch
-Tensor of the returned shape, and copy the returned bytes into its owned storage.
-Do not return `torch::from_blob` over a local `HostTensor::bytes` vector: that storage
-would be destroyed when the adapter returns. An owning-deleter scheme can be added
-later; the first version should use an explicit copy.
-
-A synchronous CPU Tensor return is a clear initial contract. Do not expose a normal
-CPU Tensor containing data still being written by the NDP worker. Optional async
-download should return a transfer handle whose `wait()` produces the CPU Tensor.
-
-## Express the decoder layer in Python without host round trips
-
-The same operation sequence as [decoder_block.cpp](../examples/decoder_block.cpp)
-can be implemented in a Python class. The following is **proposed pseudocode**;
-weight loading and validation are omitted. `w` contains prepared projection weights
-and uploaded normalization weights; `sin` and `cos` are resident NDP tensors.
+Load the weights into the source PyTorch modules and put them in eval mode.
+The adapters prepare resident weights during construction and accept CPU FP16
+tensors in `forward`. They own references to the runtime and manage transfers
+at module boundaries. Default adapters on the same Python thread share the
+single-device `ndp` command backend.
 
 ```python
-class NdpDecoderLayer:
-    def __init__(self, session, weights, sin, cos, query_heads, kv_heads, head_dim):
-        self.session = session
-        self.w = weights
-        self.sin, self.cos = sin, cos
-        self.query_heads, self.kv_heads = query_heads, kv_heads
-        self.head_dim = head_dim
+import torch
+import ndp
 
-    def forward_ndp(self, x, cache, projection_options):
-        s, w = self.session, self.w
-        tokens, width = x.shape
-        start = cache.scheduled_length()
-        positions = list(range(start, start + tokens))
-
-        n = s.rms_norm(x, w.attention_norm)
-        q = s.linear(n, w.q.tensor(), projection_options)
-        k = s.linear(n, w.k.tensor(), projection_options)
-        v = s.linear(n, w.v.tensor(), projection_options)
-        q = s.reshape(q, [tokens, self.query_heads, self.head_dim])
-        k = s.reshape(k, [tokens, self.kv_heads, self.head_dim])
-        v = s.reshape(v, [tokens, self.kv_heads, self.head_dim])
-        q = ndp.rope(s, q, self.sin, self.cos, positions)
-        k = ndp.rope(s, k, self.sin, self.cos, positions)
-        cache.append(s, k, v)
-        a = cache.attention(s, q, start)
-        a = s.reshape(a, [tokens, width])
-        residual = s.add(x, s.linear(a, w.output.tensor(), projection_options))
-
-        n = s.rms_norm(residual, w.ffn_norm)
-        gate = s.silu(s.linear(n, w.gate.tensor(), projection_options))
-        up = s.linear(n, w.up.tensor(), projection_options)
-        return s.add(residual, s.linear(s.mul(gate, up), w.down.tensor(), projection_options))
-```
-
-An `nn.Module` wrapper may call this eager code. Merely inheriting `nn.Module` does
-not register the NDP handles as parameters/buffers or enable `.to()`, `state_dict()`,
-autograd, or compilation. Those behaviors must be implemented or explicitly rejected.
-
-Use a boundary around several layers or a whole supported decoder stack:
-
-```python
-# Proposed eager usage; ndp bindings are not implemented yet.
+# mha is a pretrained torch.nn.MultiheadAttention in CPU FP16.
+attention = ndp.nn.DecodeSelfAttention(mha.eval(), max_tokens=2048)
 with torch.inference_mode():
-    x = session.upload(cpu_hidden_states)
-    for layer, cache in zip(layers, request_caches):
-        x = layer.forward_ndp(x, cache, projection_options)
-    cpu_output = session.download(x)
+    for hidden in tokens.split(1, dim=1):    # tokens: [1, sequence, embed_dim]
+        output = attention(hidden)           # [1, 1, embed_dim], on CPU
+    attention.reset_history()                # start the next independent request
 ```
 
-Upload weights and prepare their layouts once during model initialization. Keep
-weights across requests and allocate separate caches for each request/layer. Do not
-download after every primitive, or even after every layer, unless CPU computation
-actually needs the data. FP16 intermediate handles stay on the NDP device.
+This adapter runs causal self-attention for one sequence with one token per
+call. It splits the source module's packed Q/K/V projection, uploads the token
+once, and keeps the projected K/V history on the device. Bias-free projections
+use PIM; projections with bias use PNM. Attention uses PNM. The result is the
+projected output tensor. The adapter's state dict contains the four separate
+projections. Loading it clears sequence history. Use a separate adapter for
+each concurrently active sequence.
 
-For Hugging Face integration, write a model-specific adapter that maps checkpoint
-weights, normalization epsilon, RoPE convention, attention heads, and cache semantics.
-The current example has no batch dimension, padding-mask interface, model loader,
-tokenizer, sampling, or generation API. Supporting an arbitrary architecture or
-unchanged `generate()` is a separate project; start with one supported decoder model.
-Retain the host checkpoint as the serialization source and recreate device weights
-when loading. Native device handles cannot be serialized as checkpoint tensor data.
+For native gem5_pim decode, build the current FP16 worker with
+`make -C tools/gem5/pim_kernel fp16` and select it at construction:
 
-## Threading, GIL, and failure semantics
+```python
+attention = ndp.nn.DecodeSelfAttention(
+    mha.eval(), max_tokens=2048, backend="gem5_pim",
+    worker="build/pim-kernel-worker-fp16",
+)
+output = attention(token)
+```
 
-The C++ Session permits one submitting host thread. The Python GIL is not an adequate
-replacement for an explicit submission policy, especially when waits release it.
-For the first adapter, record the Session's creating thread and reject submissions
-from other threads; have a serving scheduler marshal requests to that thread. This
-preserves the existing contract without adding locks throughout the runtime.
+The worker keeps both KV buffers between calls and copies only the appended
+range and the requested prefix. The L3 attention implementation composes
+per-head gather, transpose, scaled FP32 matmul, last-axis softmax and a second
+matmul. Each primitive stores FP16 output. Projection, cache and attention
+intermediates stay within the worker. To capture arithmetic launches as well,
+pass `capture_worker`, `gemv_elf` and `attention_elf` from the
+[PNM launch guide](pnm-launch-abi.md).
 
-Release the GIL around blocking `wait`, `download`, `prepare_weight`, `synchronize`,
-and `close` calls, with arguments and native lifetimes retained. Do not access Python
-objects while it is released. Because other Python threads can then run, the owner
-thread restriction must cover close/reset/inspection as well as compute submission.
-Avoid Python callbacks on the backend worker in the initial design.
+For a bias-free SwiGLU MLP, pass three eval-mode CPU FP16 projections from
+your model. Gate, up, SiLU, multiply and down share resident intermediates.
 
-Check submission errors immediately and execution errors at explicit wait/download
-boundaries. Cache append is stateful and decoder execution is not transactional.
-A failed step may have already appended K/V; reset or recreate the request cache
-before retrying. Session errors remain reportable after cache reset. Do not translate
-a failed operation into an empty or zero-filled torch Tensor.
+```python
+mlp = ndp.nn.SwiGLU(source.gate_proj, source.up_proj, source.down_proj)
+output = mlp(hidden)
+```
 
-## Registered operators and `torch.compile`: a separate milestone
+SwiGLU accepts a single vector of rank one through three and preserves its
+leading axes. To select the N4 native gem5 capture configuration, pass
+`backend="gem5_pim"`, `worker`, `capture_worker`, `gemv_elf`, and
+`pointwise_elf` as constructor keywords. For a single projection use
+`ndp.nn.Linear.from_float(source.down_proj)`. Explicit runtime arguments
+remain available for callers managing device lifetimes. See the
+[runnable module example](../examples/python/decode_modules.py).
 
-A dispatcher operator is useful when a supported NDP region must appear as an
-operation in a PyTorch program. For a first **stateless correctness bridge**, a
-CPU-Tensor-in/CPU-Tensor-out linear operator can upload operands, invoke NDP linear,
-wait, and download. This is easy to compare with PyTorch, but repeated weight uploads
-make it unsuitable as the serving architecture.
+## Decode one complete SmolLM2 block
 
-Register a C++ schema using `TORCH_LIBRARY` and a CPU implementation with
-`TORCH_LIBRARY_IMPL` for this boundary: dispatch is CPU because the inputs are CPU
-Tensors, even though the implementation offloads work. A Python module method calling
-a pybind function is not the same registration. Shape/dtype-only fake implementations
-and appropriate validation are needed before claiming compiler support. PyTorch's
-[custom C++ operator tutorial](https://docs.pytorch.org/tutorials/advanced/cpp_custom_ops.html)
-describes registration, `register_fake`, `opcheck`, and optional autograd integration.
+Convert a loaded CPU FP16 Hugging Face Llama decoder layer in evaluation mode:
 
-A persistent serving operator needs Session, prepared weights, and request cache state.
-Do not put arbitrary pybind instances into a dispatcher schema, or hide mutable cache
-state behind an integer handle and declare the operation pure. That conceals effects
-from graph transformations and complicates lifetime safety. TorchBind offers registered
-C++ custom classes, but an ordinary pybind class is not such a class. See the official
-[custom class tutorial](https://docs.pytorch.org/tutorials/advanced/custom_classes.html).
+```python
+block = ndp.nn.LlamaDecodeBlock(model.model.layers[0], max_tokens=128,
+                                backend="gem5_pim", worker="build/pim-kernel-worker-fp16")
+with torch.inference_mode():
+    for token in hidden_states.split(1, dim=1):
+        output = block(token)  # CPU FP16 [1, 1, hidden_size]
+block.reset_history()
+```
 
-For the initial stateful decoder, keep eager execution and an explicit graph break
-around the NDP region if a surrounding model uses compilation. Before capturing it,
-design and test state mutation, aliasing, ordering, fake-class behavior where needed,
-and lifetime contracts for the selected PyTorch version. Another approach is a
-functional cache-in/cache-out operator, but the current mutable `KVCache` API does not
-supply that contract. A fake output-shape function alone does not solve cache effects.
+The adapter prepares seven bias-free PIM projections, both normalization
+weights, and RoPE tables at construction. Q and K use standard Llama
+split-half rotation. The signed sine table incorporates the rotation sign
+once and GQA stores only the KV heads. PNM runs normalization, attention,
+pointwise operations and residual adds. Projection outputs, the KV prefix,
+and both residuals stay in the worker. Each call accepts one token for one
+sequence at the next contiguous position. Start a new sequence with
+`reset_history()`. The adapter preserves the source layer's state dict keys;
+loading weights also clears history. This interface uses unscaled full-width
+RoPE and a bias-free SwiGLU MLP.
 
-Autograd and `vmap` are outside the first milestone. Reject gradient-bearing inputs;
-provide no implicit training claim. Register and test each transformation separately
-if it becomes a requirement.
+### Reproduce the checkpoint comparison
 
-## When the C++ structure must change
+Using the FP16 worker build above and the pinned local SmolLM2-135M checkpoint:
 
-| Current property | Explicit eager bindings | Requirement that needs further work |
-|---|---|---|
-| Opaque owned tensors, no exported pointer | Suitable for copying boundaries and resident handles | Zero-copy interoperability needs memory ownership, accessibility, synchronization, and layout contracts |
-| Dense contiguous logical tensors, immutable results | Suitable for this decoder composition | Native PyTorch views/strides/aliasing/in-place operations require richer tensor semantics |
-| One submitting thread, FIFO backend worker | Suitable for serialized eager execution | Concurrent serving/streams need a scheduler and thread-safe submission design |
-| Mutable opaque KVCache | Suitable for explicit request state | Graph capture needs visible effect/alias semantics or a different cache API |
-| Dense outputs enforced by Planner | Suitable for the functional backend | Real packed PIM outputs require backend normalization or a runtime representation change |
-| Only FP16 and restricted operations | Suitable for the documented model subset | General PyTorch dispatch requires defined dtype, shape, device, and fallback coverage |
-| No Python extension build | Add adapter sources and packaging | Build a shared extension, enable PIC for linked static code where required, and pin/test PyTorch ABI/toolchain compatibility |
+```sh
+make -C tools/gem5/pim_kernel fp16
+PYTHONPATH=build-python/python python examples/python/llama_block.py /path/to/SmolLM2-135M \
+    --worker build/pim-kernel-worker-fp16
+```
 
-Native device integration is substantially broader than adding bindings. PyTorch's
-[PrivateUse1 guide](https://docs.pytorch.org/tutorials/advanced/privateuseone.html) and
-[dispatcher backend guide](https://docs.pytorch.org/tutorials/advanced/extend_dispatcher.html)
-cover device registration and backend dispatch. A native backend must implement or
-explicitly handle factory/copy operations, storage/allocator behavior, device guards,
-and required operator semantics. Current Session handles can remain an internal
-resource layer, but cannot alone provide ordinary `torch.Tensor` behavior.
+For launch capture, rebuild the decoder-capable attention ELF using the
+cross compiler in the [PNM launch guide](pnm-launch-abi.md) and additionally pass
+`--capture-worker build-python/ndp_pnm_test_worker --gemv-elf build/pnm/pim_gemv.elf
+--pointwise-elf build/pnm/pointwise.elf --attention-elf build/pnm/attention.elf`.
 
-Do not add a tensor subclass, raw pointer API, or a PrivateUse1 backend merely to
-make the current example callable from Python. If transparent device integration is
-the actual acceptance criterion, revisit the Tensor and synchronization design before
-expanding the operator set.
+For layer 0 (576 hidden units, 9 Q heads, 3 KV heads, head dimension 64),
+the verifier embeds token IDs [1, 42, 30, 198] from the checkpoint. Its CPU
+reference runs the original Transformers eager layer once with an explicit
+causal mask. The NDP module decodes the same four tokens sequentially.
+The maximum absolute differences across all tokens and features were
+0.000244140625 after the attention output projection, 0.03125 after the MLP
+down projection and 0.03125 at the final residual. All three comparisons
+passed the elementwise criterion `abs(error) <= 0.02 + 0.02 * abs(reference)`
+in both native reference and launch-capture runs.
 
-## Implementation sequence and acceptance criteria
+A separate replay after cache reset compared outputs exactly and measured one
+activation upload and one output download per token. The native worker stream
+also showed one U and one D frame with 1,152 tensor bytes each per token.
+Construction uploads and diagnostic reads are outside that measurement.
+These measurements cover the first block; target PNM/PIM execution, later
+layers and model logits are outside this verification.
 
-1. **Bindings and CPU FP16 bridge.** Add an optional extension target/package, enum
-   bindings, owning wrappers, error translation, owner-thread checks, and copying
-   upload/download. Verify shape/dtype checks, noncontiguous CPU input, Session mismatch,
-   safe close, garbage collection with pending work, and failures during waits.
-2. **Resident eager decoder.** Bind the primitive calls used in the example and
-   implement the Python layer above. Compare prefill and several decode steps with
-   both the C++ example and an independent PyTorch reference using explicit FP16
-   tolerances. Check intermediate operations, causal masking, and cache reset, not
-   only final output shape. Verify weights upload once and no intermediate downloads.
-3. **One model adapter.** Load an explicitly supported checkpoint, match its RoPE and
-   normalization conventions, retain per-request caches, and validate token-step
-   outputs. Define batch/padding limitations and external generation integration.
-4. **Optional dispatcher bridge.** Register a stateless boundary first, run `opcheck`,
-   and test fake execution/compilation. Keep the stateful eager path until mutation
-   semantics are validated. Do not claim compiler support based on eager tests.
+## Explicit runtime API
 
-These are proposed checks, not completed tests. The repository's existing C++ tests
-and CPU functional backend do not establish Python, PyTorch compiler, or FPGA support.
-The immediate missing work is an adapter and its tests; explicit eager integration
-does not currently justify a rewrite of L2/L3.
+Select the command backend with `Session(backend="ndp")`. Pass `config` to override its default NdpSpec. See [the command backend guide](ndp-backend.md).
+
+P1–P4 of the [runtime integration plan](runtime-pytorch-plan.md) are implemented:
+Python ownership/lifecycle bindings, CPU FP16 transfer, resident L2 operations, and
+an explicit Python decoder example. This is an eager, inference-only adapter, not a
+native torch device. `NdpTensor` is an opaque device handle rather than a subclass
+of torch.Tensor. L2 has no PyTorch dependency.
+
+## Convert one Linear for inference
+
+Load an eval-mode CPU FP16 model, then convert a bias-free projection once per session.
+
+```python
+with torch.inference_mode(), ndp.Session(backend="gem5_pim", worker=worker) as runtime:
+    mlp = model.model.layers[0].mlp
+    mlp.down_proj = ndp.nn.Linear.from_float(mlp.down_proj, runtime=runtime)
+    prefill = model(prompt_ids, use_cache=True)
+    step = model(next_id, past_key_values=prefill.past_key_values, use_cache=True)
+```
+
+Use the converted model inside its session lifetime. For a remote worker use `ndp.Session.connect(host, port)`. A single vector of rank one through three uses `torch.ops.ndp.linear_pim`, returning a CPU FP16 tensor with the original leading dimensions. Other compatible shapes use CPU Linear. The module stores its checkpoint under `weight` and rebuilds its prepared representation on `load_state_dict`. After editing a weight directly, call `refresh()`. FakeTensor metadata execution is available for the operator. On Python 3.11 and Torch 2.9.1, fixed-shape operator capture with torch.compile(fullgraph=True, backend="eager") matched eager results on the functional and native libpim backends.
+
+## Build and install
+
+Use a Python environment with PyTorch 2.9 or newer, setuptools, wheel, a C++20
+compiler, and CMake 3.20+. The implementation was exercised locally with CPython
+3.14 and PyTorch 2.9.1 on macOS arm64. The CI configuration targets CPython 3.11
+and CPU PyTorch 2.9.1 on Ubuntu. Other combinations are not established by these tests.
+The wheel uses the ordinary LibTorch ABI: rebuild it when changing PyTorch or Python.
+
+```sh
+# Use the Torch installation in the active environment, without downloading another one.
+python -m pip install . --no-build-isolation --no-deps
+python examples/python/linear.py
+python examples/python/decoder_block.py --ndp-config configs/ndp-small.ini
+```
+
+Config paths are explicit filesystem paths; bundled repository examples/configs are
+not installed as package resources. Run the examples from the repository root.
+CMake and the build prerequisites must already be available for the command above.
+The normal C++ build remains unchanged and does not require Python or Torch.
+
+For development and the complete C++/Python tests:
+
+```sh
+cmake -S . -B build-python -DNDP_BUILD_PYTHON=ON -DNDP_PYTHON_TESTING=ON \
+  -DPython3_EXECUTABLE="$(command -v python)"
+cmake --build build-python -j 2
+ctest --test-dir build-python --output-on-failure
+PYTHONPATH=build-python/python python examples/python/decoder_block.py
+```
+
+CMake copies the Python package into `build-python/python/ndp` by default.
+`NDP_PYTHON_OUTPUT_DIR` can override this destination. `NDP_PYTHON_TESTING` enables
+an internal delayed-failure backend solely for error/GIL/lifetime tests; wheels
+explicitly disable it. Tests for that backend are skipped for production wheels.
+
+## Resident libpim projections from external PyTorch
+
+Build the FP16 native reference worker with `make -C tools/gem5/pim_kernel fp16`. Use the Python adapter built from the same checkout. On POSIX, `worker` is the path to the executable; each Session starts one process and closes it on exit. This backend supports PIM Matvec and single-token, bias-free Linear.
+
+```python
+import torch
+import ndp
+
+source = torch.nn.Linear(3, 2, bias=False, dtype=torch.float16).eval()
+with ndp.Session(backend="gem5_pim", worker="./build/pim-kernel-worker-fp16") as s:
+    projection = ndp.nn.NdpLinear.from_torch(source, s, ndp.Engine.PIM)
+    for x in (torch.ones(1, 3).half(), torch.zeros(1, 3).half()):
+        y = projection.forward_ndp(s.upload(x))
+        print(s.download(y))
+```
+
+To chain compatible layers, pass `y` directly to the next projection's `forward_ndp`. Weight preparation occurs during module construction. The worker uses FP16 operands, FP32 accumulation and a rounded FP16 output at each operation boundary. To include the native worker integration cases in CTest, configure the Python build with `-DNDP_GEM5_PIM_WORKER="$PWD/build/pim-kernel-worker-fp16"`.
+
+## Session and transfer boundaries
+
+```python
+import torch
+import ndp
+
+with ndp.Session(backend="ndp", config="configs/ndp-small.ini") as s:
+    x = s.upload(torch.tensor([[1, 2, 3]], dtype=torch.float16))
+    w = s.upload(torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.float16))
+    weight = ndp.llm.prepare_weight(s, w)
+    options = ndp.OpOptions(ndp.Engine.PIM, ndp.LayoutPolicy.RequirePrepared)
+    y = s.linear(x, weight.tensor(), options)
+    y = s.silu(y)  # PNM by default; receives the dense PIM result directly.
+    result = s.download(y)
+```
+
+`Session()` defaults to the functional backend with 64 MiB off-chip capacity and
+4096 bytes of scratchpad. `capacity_bytes` and `scratchpad_bytes` customize that
+backend; an NDP Session uses the resources in its NdpSpec.
+`max_staging_bytes` controls the runtime's upload staging budget for either backend.
+There is no process-global device selection. Engine is selected for each operation.
+
+Upload requires a CPU strided float16 torch.Tensor without requires_grad. Sparse,
+quantized, other devices/dtypes, scalar, and empty inputs are rejected. Convert
+explicitly before upload. Noncontiguous tensors and lazy negative views are resolved
+into contiguous logical values. Upload copies into native-owned staging before
+returning; changing or deleting the CPU source afterward is safe.
+
+Download waits and returns a newly allocated CPU FP16 torch.Tensor. It never exposes
+worker-written storage before completion. `s.download_async(x)` returns a
+HostTransfer; `.wait()` creates the completed CPU tensor. These are copying APIs,
+not zero-copy/DLPack boundaries. `NdpTensor.dtype` is `ndp.DType.F16`; its shape is a
+list of dimensions. `desc` is native TensorDesc metadata.
+
+## Resident operations and preparation
+
+| API group | Available calls |
+|---|---|
+| Matrix/vector | `matmul(a,b,options,factor=1.0)`, `matvec(w,x,options)`, `linear(x,w,options,bias=None)` |
+| Elementwise/normalization | `add`, `mul`, `rms_norm(x,gamma,epsilon=1e-5,options=...)`, `softmax(x,axis=-1,options=...)`, `silu` |
+| Data operations | `reshape(x,shape)`, `gather(x,indices,shape)`, `scale(x,factor)`, `transpose(x)` |
+| Planning/layout | `query_operation`, `query_layout`, `prepare_layouts`, `materialize_layout` |
+| Mutable storage | `allocate(TensorDesc)`, `copy_into`, `snapshot`, `clear` |
+| Completion/inspection | Tensor/Event `wait`, `ready_event`, `synchronize`, `memory_stats`, `capabilities`, `close` |
+
+OpOptions defaults to PNM and AllowMaterialize; matvec defaults to PIM.
+RequirePrepared rejects a missing layout instead of creating one at submission.
+`ndp.llm.prepare_weight` is L3 policy layered over generic L2 layout preparation;
+its `.tensor()` is the ordinary Tensor accepted by L2 linear. Its default engines
+are PNM and PIM; an explicit engine list and max_resident_bytes are accepted.
+
+The NDP backend supports PIM matvec and bias-free M=1 linear. Run SiLU on PNM. Unsupported
+combinations raise NdpError. The wrapper does not silently select another engine.
+Matmul's finite `factor` scales the FP32 accumulator before FP16 output conversion.
+Cached attention uses this for `1/sqrt(head_dim)`, avoiding overflow caused solely
+by storing an unscaled score first. Scores are still FP16 after scaling, so this
+is not a full FP32 or fused-softmax attention implementation.
+
+Tensor results are immutable and ordinarily returned before device execution ends.
+Layout preparation waits as the native API requires. Shape, broadcasting, and
+layout restrictions are those of the existing C++ runtime, not full ATen semantics.
+
+A model-independent buffer example:
+
+```python
+with ndp.Session() as s:
+    x = s.upload(torch.tensor([1, 2, 3], dtype=torch.float16))
+    buffer = s.allocate(ndp.TensorDesc([6]))
+    s.copy_into([ndp.TensorCopy(x, buffer, 0, 2, 3)])
+    saved = s.snapshot(buffer, ndp.TensorDesc([6]))
+    s.clear([buffer]).wait()
+    print(s.download(saved))  # [0, 0, 1, 2, 3, 0]; snapshot owns an independent copy.
+```
+
+Copy offsets and counts are FP16 elements in flattened dense order. Snapshot and
+reshape do not expose PyTorch views or aliasing mutations. Cross-Session operands
+are rejected before entering the native operation.
+
+## Implement layers directly in Python
+
+[decoder_block.py](../examples/python/decoder_block.py) shows the full layer sequence:
+normalization, Q/K/V projections, head reshape, RoPE, request-cache append, causal
+attention, output projection/residual, and SwiGLU FFN/residual. It does not invoke
+the C++ decoder_block function. Native L3 helpers implement RoPE and cache policy
+using generic L2 operations.
+
+Initialize weights and layouts once. Call `layer.new_cache()` for each request and
+pass its cache explicitly into `forward_ndp`. The example prefills two tokens on
+PNM and performs three PIM-projection decode steps. Intermediate NdpTensor objects
+stay resident; another layer can receive the output handle directly. Only explicit
+downloads cross back to CPU. Current native RoPE composition uploads a small sign
+vector per call; residency checks establish no repeated weight uploads or intermediate
+downloads, not the absence of every small native upload.
+
+The example fixes width=4, query_heads=2, kv_heads=1, head_dim=2, FFN width=6,
+interleaved RoPE, and no batch dimension. It demonstrates the runtime and is not a
+checkpoint loader or arbitrary Hugging Face model adapter. Cache append is not
+transactional with the whole layer; reset/recreate request state after step failure.
+
+## Replace a selected nn.Linear
+
+```python
+source = torch.nn.Linear(16, 8, bias=False, dtype=torch.float16).eval()
+with ndp.Session() as s:
+    layer = ndp.nn.NdpLinear.from_torch(source, s, engine=ndp.Engine.PIM)
+    x = torch.randn(1, 16, dtype=torch.float16)
+    cpu_result = layer(x)  # Convenience upload/compute/download boundary.
+    resident_result = layer.forward_ndp(s.upload(x))  # Compose more NDP work here.
+```
+
+The adapter owns detached CPU checkpoint buffers and separately prepared device
+weights. `state_dict()` serializes CPU buffers. `load_state_dict()` rebuilds resident
+weights, including loading through a parent module. Buffer replacement is detected by object identity, and ordinary in-place changes
+are detected via Tensor version counters; call `refresh()` to rebuild before forward.
+Do not mutate storage through `.data` or external raw pointers: those changes can
+bypass version counters. Shape/copy errors during loading leave the adapter unusable
+until refresh or a successful reload. PIM bias and training mode are rejected.
+
+Use the source module's `.to(...)` before constructing the adapter. The adapter does
+not support later dtype/device migration or a magic `.to("ndp")` conversion. It is
+an inference component, not a trainable nn.Parameter replacement.
+
+## Ownership, threading, and errors
+
+Each tensor, buffer, event, transfer, prepared weight, and cache retains a shared
+native Session owner. Dropping the Python Session variable does not invalidate its
+handles. This ownership does not require a Python reference cycle. Explicit close
+drains work and makes future submissions fail; existing completion handles may still
+be waited on. Destruction performs native RAII cleanup without Python callbacks;
+use explicit close/context management to observe shutdown errors.
+
+Use a Session and its handles only on the creating thread. Inspection and close are
+also checked. A serving scheduler should marshal requests to that thread. Blocking
+waits, downloads, preparation, synchronization, and close release the GIL. No second
+Python submission thread or worker-side Python callback is introduced. Free-threaded
+Python and subinterpreters are not supported by this adapter.
+
+NdpError derives from RuntimeError and carries `.code` (ErrorCode) and `.operation`.
+Submission errors appear at the call site; worker errors appear at wait/download/
+synchronize/close. Context manager exit preserves an existing exception and attaches
+shutdown diagnostics instead of masking it. Native Session errors remain reportable
+after cache reset; reset is not a rollback or a general Session error clear.
+
+## Validation and remaining scope
+
+`tests/python` checks all FP16 encodings through transfer, noncontiguous/lazy views,
+source mutation, ownership and cross-thread rejection, delayed execution errors and
+GIL release, generic buffers, every bound primitive, layout preparation, PIM-to-PNM
+chaining, module reload, and decoder intermediate values. Decoder tests use an
+independent PyTorch reference with explicit FP16 primitive boundaries, the default and small NDP profiles and the functional backend, causal masking, cache reset/isolation, and
+Python transfer counts. These are small numerical correctness tests, not performance
+or full-model accuracy claims.
+
+## Llama checkpoint decode with one PIM projection (P5)
+
+The [local checkpoint example](../examples/python/llama_decode.py) loads a CPU FP16 Hugging Face LlamaForCausalLM in eager evaluation mode. Each run starts with a fresh, unpadded batch of one prompt on CPU. Before prefill the example converts the first layer’s MLP down_proj using ndp.nn.Linear.from_float. A multi-token prompt runs this projection on CPU. The next two single-token steps use the registered PIM operator. Hugging Face owns RoPE, normalization, causal masking, KV cache and the LM head. The projection keeps its prepared weight in the Session and transfers one activation and one result per call. Its input and output have shape [1, 1, features].
+
+With Transformers installed alongside the extension, run the following from the repository root. Select a checkpoint that fits host RAM and whose selected projection fits the backend's weight and staging limits. Token IDs must be valid for that checkpoint.
+
+```sh
+PYTHONPATH=build-python/python python3 examples/python/llama_decode.py /path/to/local/llama \
+    --worker "$PWD/build/pim-kernel-worker-fp16" --tokens 1 2 3 4
+```
+
+Omit --worker to use the functional backend. The example compares both the projection outputs and the full vocabulary logits with an independent CPU run on the same tokens, reports maximum absolute error, and fails if torch.testing.assert_close exceeds atol=0.02 and rtol=0.02. These thresholds apply to this example; check the errors for each checkpoint before using it in serving.
+
+### Pretrained checkpoint acceptance
+
+Tested the base HuggingFaceTB/SmolLM2-135M LlamaForCausalLM checkpoint at revision `93efa2f097d58c2a74874c7e644dbc9b0cee75a2` on CPU using PyTorch 2.9.1 and Transformers 4.57.6. Load the BF16 checkpoint in FP16 for both the reference and offloaded runs. Only layer 0's bias-free MLP down projection (1536 inputs, 576 outputs) is converted. [Pinned model files](https://huggingface.co/HuggingFaceTB/SmolLM2-135M/tree/93efa2f097d58c2a74874c7e644dbc9b0cee75a2)
+
+The tokenizer encodes “The capital of France is Paris.” as seven tokens with no added BOS. The first five are the prompt and the last two are teacher-forced decode inputs. Each row compares against a fresh CPU run with the same KV cache history. Both runs use batch size one, an unpadded prompt and the model's default causal masking.
+
+| Backend | Decode input ID | Projection max absolute error | Logits max absolute error | Greedy next ID (CPU and NDP) |
+|---|---:|---:|---:|---:|
+| functional | 7042 | 0 | 0 | 30 |
+| functional | 30 | 0.00000762939453125 | 0 | 198 |
+| native libpim | 7042 | 0 | 0 | 30 |
+| native libpim | 30 | 0 | 0 | 198 |
+
+From the repository root, set CHECKPOINT to a local copy of the pinned config.json and model.safetensors. Run both commands with the PyTorch extension and Transformers available:
+
+```sh
+export PYTHONPATH="$PWD/build-python/python${PYTHONPATH:+:$PYTHONPATH}"
+python3 examples/python/llama_decode.py "$CHECKPOINT" --tokens 504 3575 282 4649 314 7042 30
+python3 examples/python/llama_decode.py "$CHECKPOINT" --tokens 504 3575 282 4649 314 7042 30 \
+    --worker "$PWD/build/pim-kernel-worker-fp16"
+```
+
+### First-block attention projections
+
+Append `--target attention` to either pretrained acceptance command above to convert layer 0's q_proj, k_proj, v_proj and o_proj together. The default target retains the down_proj baseline. Both runs use the pinned checkpoint, prompt, decode IDs and tolerances above. Each run creates an independent KV cache. RoPE, cache updates and attention execute in Hugging Face. The input to the post-attention RMSNorm captures the residual sum before normalization.
+
+Measured maximum absolute errors versus CPU FP16:
+
+| Output (shape at decode) | Functional step 1 | Functional step 2 | Native libpim step 1 | Native libpim step 2 |
+|---|---:|---:|---:|---:|
+| Q (1,1,576) | 0 | 0 | 0 | 0 |
+| K (1,1,192) | 5.96e-8 | 7.63e-6 | 5.96e-8 | 0 |
+| V (1,1,192) | 0 | 0 | 0 | 0 |
+| O (1,1,576) | 9.54e-7 | 3.05e-5 | 9.54e-7 | 0 |
+| Attention residual (1,1,576) | 0 | 3.05e-5 | 0 | 0 |
+| Logits (1,1,49152) | 0 | 0.05322265625 | 0 | 0 |
+
+Native libpim passed. Functional failed the existing step-2 logits criterion for 5,906 of 49,152 entries. Both backends selected the CPU greedy IDs 30 and 198. In four additional functional runs, offloading O alone reproduced the same maximum logits error. Offloading Q, K or V individually gave zero step-2 logits error. With identical step-2 O inputs and weights, two of 576 functional outputs differed from CPU by one FP16 ULP. The FP64 dot products rounded to FP16 matched CPU on all 576 outputs.
+
+### Seven projections in block 0
+
+Use `--target block` with the same two pretrained acceptance commands, tokens and checkpoint. This mode records three fresh-cache runs: CPU, Q/K/V/O on the selected backend, and Q/K/V/O plus gate/up/down on that backend. It checks that all seven packed weight objects are reused across decode calls. CPU executes RoPE, attention, normalization, activation, gating and residual addition. Both comparisons use the existing elementwise atol=0.02 and rtol=0.02. The example reports every comparison before returning a failing exit status if any check fails.
+
+| Backend | Decode step | Block output max error vs CPU | Logits max error vs CPU | Logits max error vs attention-only | Logits outside tolerance vs attention-only |
+|---|---:|---:|---:|---:|---:|
+| Functional | 1 | 0.00390625 | 0.04296875 | 0.04296875 | 40 / 49152 |
+| Functional | 2 | 0.00048828 | 0.03991699 | 0.03515625 | 162 / 49152 |
+| Native libpim | 1 | 0.00390625 | 0.03125 | 0.03125 | 0 / 49152 |
+| Native libpim | 2 | 0.00003052 | 0.04199219 | 0.04199219 | 356 / 49152 |
+
+Both backends matched the CPU greedy tokens 30 and 198. Against the attention-only run, Q/K/V/O and the attention residual matched at both steps. At step 1 the gate matched and the up projection differed by 0.00012207 on both backends. The down projection and final block output differed by 0.00390625. The MLP projections and block output passed the elementwise tolerance. The new logits failures are recorded separately from the prior attention-only functional discrepancy.
+
+### First-block routing and transfers
+
+Use `--verify-routing` in place of `--target block` with the pinned checkpoint and seven token IDs above. The example checks the CPU profiler event counts for ndp::upload, ndp::pim_projection and ndp::download in each successful phase. These are logical transfers at the PyTorch/runtime boundary. Physical bank transfers, worker protocol frames and simulator timing require different instrumentation.
+
+| Phase | Uploads | PIM Linear calls | Downloads |
+|---|---:|---:|---:|
+| Prepare seven weights once | 7 | 0 | 0 |
+| Five-token CPU prefill | 0 | 0 | 0 |
+| First cached decode token | 7 | 7 | 7 |
+| Second cached decode token | 7 | 7 | 7 |
+| Fresh one-token prompt | 7 | 7 | 7 |
+
+The functional and native libpim backends produced the same counts. The one-token prompt starts with an empty cache and reuses the prepared weights. It takes the same single-vector route as cached decode.
+
+### Greedy generation with seven first-block projections
+
+Run the two commands below with tokenizer.json from the same pinned revision alongside the model. Each prompt starts with an empty KV cache on each path. Each model feeds its own argmax back until EOS or the specified number of new tokens. The first decision uses the final prefill logit vector. A one-token prompt uses PIM for that decision as well.
+
+```sh
+python3 examples/python/llama_decode.py "$CHECKPOINT" --verify-greedy --max-new-tokens 24
+python3 examples/python/llama_decode.py "$CHECKPOINT" --verify-greedy --max-new-tokens 24 \
+    --worker "$PWD/build/pim-kernel-worker-fp16"
+```
+
+The acceptance criterion is identical generated token IDs and stopping position. The command prints both trajectories and the maximum absolute logits difference across decisions with identical preceding tokens. A first mismatch triggers fresh-cache replay through that decision, reports both top-two candidates and margins, and causes the verification to fail after all prompts have run. The existing teacher-forced numerical tolerance is checked independently by the block comparison.
+
+Measured maximum absolute logits differences for the five prompts (24 generated IDs per prompt, all matched CPU on both backends):
+
+| Prompt | Functional | Native libpim |
+|---|---:|---:|
+| The capital of France is | 0.0703125 | 0.0703125 |
+| Water freezes at | 0.1171875 | 0.0625 |
+| The first three prime numbers are | 0.111328125 | 0.078125 |
+| Once upon a time | 0.078125 | 0.21484375 |
+| Hello | 0.1328125 | 0.064453125 |
+
+### Shared Q/K/V input
+
+In an eager attention implementation call `q, k, v = ndp.nn.project_qkv(x, q_proj, k_proj, v_proj)` with three converted ndp.nn.Linear modules in one Session. For a single vector the dispatcher uploads x once, executes three PIM projections with their existing packed weights and returns three separate CPU tensors. K/V output widths can differ from Q. The uploaded activation belongs to this call. Multi-vector inputs follow CPU Linear. The helper calls the kernels directly; individual projection module forward hooks are bypassed.
+
+For the pinned SmolLM2 checkpoint, append `--reuse-qkv` to the routing command:
+
+```sh
+python3 examples/python/llama_decode.py "$CHECKPOINT" --verify-routing --reuse-qkv \
+    --tokens 504 3575 282 4649 314 7042 30 --worker "$PWD/build/pim-kernel-worker-fp16"
+```
+
+Omit --worker for the functional backend. The example uses the eager Llama attention implementation for Transformers 4.57.6. It compares the independent and shared-input paths in the same Session with fresh caches and the same prepared weights. Both backends measured five activation uploads, seven PIM projections and seven downloads for each cached token and for a fresh one-token prompt. Five-token prefill measured zero for all three counts. All 21 single-token projection outputs and all four logits tensors matched the independent path exactly. The profiler counts ndp::pim_projection around each individual GEMV, including the three inside ndp::qkv_pim. The same optional adapter can be selected with --verify-greedy --reuse-qkv.
+
+## Place consecutive decoder layers on independent devices
+
+`LlamaDecodeStack` consumes a single CPU FP16 hidden state shaped
+`[1, 1, hidden_size]` per call. Each entry in `placement` selects the device
+ordinal for the corresponding source layer. A device dictionary creates one
+Session and backend, even when two dictionaries specify the same executable.
+
+```python
+devices = [{"backend": "gem5_pim", "worker": worker_path} for _ in range(2)]
+stack = ndp.nn.LlamaDecodeStack(
+    model.model.layers[:2], devices=devices, placement=[0, 1], max_tokens=128,
+)
+with torch.inference_mode():
+    for token in hidden_states.split(1, dim=1):
+        output = stack(token)
+stack.reset_history()
+```
+
+Weights, rotary tables and each layer's KV cache stay on its assigned device.
+Adjacent layers on the same device pass an immutable handle directly. At a
+change of device, L2 waits for the source, downloads dense FP16 into host
+staging, uploads those bytes to the destination and waits for completion.
+Only the first and last stages exchange PyTorch tensors with the application.
+A failed token can leave earlier caches advanced. The stack rejects further
+tokens until `reset_history()` clears history across all stages. Resetting
+starts a new sequence; reconstruct a previous prefix by replaying its tokens.
+Each instance currently serves one sequence on its creating Python thread.
+Execution is sequential within that sequence. This stage covers layer
+placement; scheduling overlapping microbatches remains a separate extension.
+Tensor-parallel projection contracts are described in [Parallelism](parallelism.md).
+
+The lower-level `ndp.DeviceGroup([session_a, session_b])` also accepts existing
+sessions. `group.copy_to(tensor, 1)` returns a ready tensor owned by session B.
+A same-device copy returns the same allocation. Session ownership checks and
+per-session staging and allocation budgets apply. On failure the original
+tensor remains owned by its source. The C++ API is in
+[device_group.hpp](../include/ndp/l2/device_group.hpp).
+
+To compare the first two SmolLM2 layers on one native worker and on two workers:
+
+```sh
+PYTHONPATH=build-python/python python examples/python/llama_stages.py /path/to/SmolLM2-135M \
+    --worker build/pim-kernel-worker-fp16
+```
+
+The verifier compares every output element for four consecutive tokens
+(IDs 1, 42, 30, 198) and observes the v2 upload/download frames per worker,
+excluding initialization. For hidden size 576, the expected tensor payload
+per frame is 1,152 bytes. Placement [0,0] produces U,D on one worker.
+Placement [0,1] produces U,D on A and U,D on B: A's download and B's upload
+carry the single inter-device activation.
+
+## Split a single Linear across devices
+
+For one decode token, split a bias-free FP16 projection along the output
+channel dimension. Each device prepares its own contiguous range of weight
+rows once. Every device receives the full input. Each output channel therefore
+uses the same full dot product as the single-device implementation.
+
+```python
+devices = ndp.DeviceGroup([{"backend": "gem5_pim", "worker": worker_path}
+                           for _ in range(2)])
+projection = ndp.nn.TensorParallelLinear(source.gate_proj, devices=devices)
+with torch.inference_mode():
+    y = projection(x)  # CPU FP16, original leading axes and full output width
+```
+
+The module accepts a CPU FP16 vector shaped [K], [1,K] or [1,1,K].
+It submits the local GEMVs to separate Session queues before downloading
+the output shards and concatenating them on the CPU. A single full CPU
+checkpoint weight is retained for state_dict. Each worker owns only its
+assigned weight rows. Loading a standard Linear state dict rebuilds all
+resident shards. An uneven split assigns the extra rows to the lowest device
+ordinals; each device must have at least one row.
+
+For a consumer that operates on device tensors, call
+`shards = projection.forward_shards(x)` in place of the CPU forward.
+Each handle is a [1,local_width] row on its corresponding device.
+`devices.all_gather_rows(shards)` returns a complete [1,N] tensor on every
+device. The L2 implementation gathers into device 0 and copies the assembled
+row to the other devices using bounded host staging. For a consumer that
+accepts the partitioned representation, use the local shards directly.
+
+To verify a real checkpoint with two native workers:
+```sh
+PYTHONPATH=build-python/python python examples/python/llama_tensor_parallel.py \
+    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+```
+
+This example uses the first layer's gate projection and four real gate inputs
+from a causally masked checkpoint forward. It checks the CPU result and both
+device replicas against the unsharded native worker. Input-dimension splitting is available with split="input", using FP32 partials
+and host reduction followed by one FP16 conversion. DistributedRow allows
+resident tensors to flow between projections. See [Parallelism](parallelism.md)
+for the complete API and precision contract. Pipeline scheduling and performance measurements are
+independent of this numerical test.
+
+
+## Tensor-parallel Llama sublayers
+
+Use `ndp.nn.TensorParallelSwiGLU(layer.mlp, devices=devices)` and
+`ndp.nn.TensorParallelLlamaAttention(layer.self_attn, devices=devices, max_tokens=128)`
+with an FP16 eval-mode source and a shared DeviceGroup. Call each module with
+one normalized CPU FP16 token under `torch.inference_mode()`; it returns a
+CPU FP16 token without explicit Session, upload or download calls. Attention
+retains per-device KV history until `reset_history()` is called.
+
+Gate/up activations and grouped attention heads remain resident on their
+assigned devices. Only the down and output projections produce FP32 partials
+for host reduction. `forward_distributed` exposes those partials for resident
+composition. Normalization and residual addition remain the caller's work.
+See [Parallelism](parallelism.md) for supported shapes, failure/reset semantics,
+partition rules, the checkpoint example and measured transfer counts.
+
+
+For the complete layer, including RMSNorm and residual addition, use:
+
+```python
+block = ndp.nn.TensorParallelLlamaDecodeBlock(
+    model.model.layers[0], devices=devices, max_tokens=128)
+with torch.inference_mode():
+    output = block(token)  # [1,1,hidden_size], CPU FP16
+block.reset_history()
+```
+
+Normalization and residual addition run on device 0. Normalized inputs are
+replicated for the tensor-parallel sublayers; FP32 projection partials are
+reduced on the host. `forward_distributed` returns completed replicas for
+another block in the same group. Loading a source layer state dict resets
+KV history. A failed token requires resetting the whole composed sequence.
+
+
+## Whole tensor-parallel model and generation
+
+```python
+model = ndp.nn.TensorParallelLlamaForCausalLM(
+    source,  # CPU FP16 eval-mode Hugging Face LlamaForCausalLM
+    devices=[{"backend": "gem5_pim", "worker": worker_path} for _ in range(2)],
+    max_tokens=128)
+output_ids = model.generate(input_ids, max_new_tokens=8)
+```
+
+The adapter runs all decoder layers and final RMSNorm on NDP. Embedding,
+LM head and greedy token selection run on the CPU. Inputs are CPU int64 token
+IDs, and generate returns prompt plus generated IDs. No explicit Session,
+upload or download calls are required. Generation is single-sequence greedy
+decode and processes the prompt one token at a time.
+
+For manual streaming, call `model.reset_history()` then `model(token_ids)` for
+each [1,1] token. Each call returns CPU FP32 logits [1,1,vocab_size]. These are
+FP16 LM-head results converted to FP32. `generate` resets history itself.
+The final emitted token has not been processed into KV history. Checkpoint
+reload resets all layers, and any execution failure requires resetting the
+whole model. This API is not Hugging Face GenerationMixin.
+
+`TensorParallelLlamaDecodeStack` is available when embedding and output head
+are managed by the caller. It accepts one CPU FP16 [1,1,hidden_size] vector,
+keeps all interlayer rows on device 0, and returns the final hidden vector.
+See [parallelism](parallelism.md) for placement, capacities and EOS semantics,
+and [validation results](tensor-parallel-model-validation.md) for measured drift.
+
+
+Llama RMSNorm adapters preserve the reference's intermediate FP16 conversion:
+normalize in FP32, store FP16, then multiply by the FP16 normalization weight.
+The existing L2 fused RMSNorm operation is unchanged. This distinction affects
+model precision even though both paths return FP16 tensors; see the
+[precision measurements](tensor-parallel-model-validation.md).
+
+
+Multi-device normalization inputs now use a shared-staging broadcast: one source
+download is reused for uploads to all other devices. This is automatic in the
+TP adapters and changes no user calls or arithmetic. It reduces communication
+for three or more devices; two-device volume stays the same. See
+[parallelism measurements](parallelism.md) for packet counts and memory scope.
+
+
+## Combine layer placement and tensor parallelism
+
+Pass device_groups and a layer-to-group placement list to the existing adapter:
+
+```python
+model = ndp.nn.TensorParallelLlamaForCausalLM(
+    source, device_groups=[[options, options], [options, options]],
+    placement=[0]*15 + [1]*15, max_tokens=128)  # A 30-layer model.
+output_ids = model.generate(input_ids, max_new_tokens=8)
+```
+
+Each option dictionary creates an independent worker Session. Each group runs
+its assigned layers with TP; a group boundary passes only the completed hidden
+row through host staging. Embedding and LM head stay on the CPU, and final
+RMSNorm runs on the last group's root. TensorParallelLlamaDecodeStack accepts
+the same arguments for callers managing embedding/head themselves.
+
+Use devices for a single group, or device_groups with placement for multiple
+groups. They cannot be mixed. All groups must be used and Sessions must be
+disjoint. Checkpoint keys and reset semantics are unchanged. This is sequential
+stage placement, not microbatch pipeline scheduling. See [parallelism](parallelism.md)
+for the boundary protocol, measured traffic and the full-model comparison example.
+
+
+## Share one model across independent decode requests
+
+```python
+with model.new_request(max_tokens=64) as request_a, model.new_request(max_tokens=64) as request_b:
+    logits_a = model(token_a, request=request_a)
+    logits_b = model(token_b, request=request_b)
+    logits_a = model(next_token_a, request=request_a)
+```
+
+Each request owns independent KV caches and positions while weights remain
+shared. Calls are sequential on the model's owning thread. No explicit upload,
+download or Session calls are needed. Closing a request releases its cache
+references; resetting it starts a new sequence without affecting other requests.
+`generate(prompt, request=request_a, max_new_tokens=8)` resets and uses only A.
+Calls without request= keep the existing default history.
+
+Use the whole-model state dict to reload weights: reload closes all outstanding
+explicit requests to prevent stale KV histories. A failed request must reset
+before continuing, while healthy requests retain their state (subject to shared
+backend health). Request scheduling and concurrent execution are not included.
+See [request lifecycle and verification](parallelism.md) for the complete contract.
+
+
+## Queue several generation requests
+
+```python
+with ndp.serving.GenerationScheduler(model, max_active_requests=2) as scheduler:
+    a = scheduler.submit(prompt_a, max_new_tokens=8)
+    b = scheduler.submit(prompt_b, max_new_tokens=8)
+    scheduler.run()
+    if a.status == "completed":
+        print(a.token_ids)
+    else:
+        print(a.status, a.error)
+```
+
+The scheduler owns request histories and releases them on completion or cancel.
+Use step() to receive per-token events and cancel(handle) between steps. Model
+calls remain sequential; max_active_requests limits resident histories. See
+[request scheduling](request-scheduling.md) for failure handling and EOS rules.
+
+
+## Overlap stages across requests
+
+`ndp.pipeline.PipelineGenerationScheduler` accepts a source Llama model,
+backend-option groups and contiguous layer placement. Each stage owns a thread
+and creates its Sessions there. submit/run/cancel use the same request-handle
+style as the sequential scheduler, but different requests may execute on
+different stages concurrently. One request still has only one token in flight.
+See [pipeline execution](pipeline-execution.md) for a complete example and
+measured native overlap. Existing Sessions cannot be passed across stage threads.
+
+
+## Multi-token prefill
+
+Use `model.prefill(prompt_ids, request=req)` to append a [1,T] prompt chunk and
+receive [1,T,vocab_size] logits. For automatic prompt chunking, pass
+`prefill_chunk_size=16` to model.generate or either scheduler constructor.
+Multi-token projections use PNM GEMM; subsequent one-token decode uses PIM GEMV.
+The default chunk size remains 1. See [prefill](prefill.md) for cache ordering,
+FP32 partial outputs and native-worker limitations.

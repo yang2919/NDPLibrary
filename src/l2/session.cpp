@@ -346,9 +346,15 @@ Result<Session> Session::create(std::unique_ptr<IBackend> backend, SessionOption
 }
 
 Result<Tensor> Session::from_host(HostTensorView host) {
+  return upload_dense(std::move(host), nullptr);
+}
+
+Result<Tensor> Session::upload_dense(HostTensorView host, std::shared_ptr<std::vector<std::byte>> input) {
   if (!state_ || state_->closed) {
     return Status{ErrorCode::SessionClosed, "Session closed"};
   }
+  if (!state_->resources->backend->supports_storage(host.desc.dtype))
+    return Status{ErrorCode::UnsupportedDType, "Backend does not support this storage dtype"};
   auto size = byte_size(host.desc);
   if (!size) {
     return size.error();
@@ -367,7 +373,7 @@ Result<Tensor> Session::from_host(HostTensorView host) {
     if (!staging) {
       return staging.error();
     }
-    auto input = std::make_shared<std::vector<std::byte>>(host.bytes.begin(), host.bytes.end());
+    if (!input) input = std::make_shared<std::vector<std::byte>>(host.bytes.begin(), host.bytes.end());
     auto record = std::make_shared<detail::TensorRecord>();
     record->desc = std::move(host.desc);
     // Insert before submission so allocation failures cannot leave an untracked command.
@@ -375,7 +381,7 @@ Result<Tensor> Session::from_host(HostTensorView host) {
     auto [entry, inserted] = record->representations.emplace(
         LayoutKind::DenseRowMajor, detail::Representation{layout, buffer, Event{}});
     entry->second.ready =
-        state_->submit([buffer, input, staging = staging.value()]() -> Result<void> {
+        state_->submit([buffer, input, dtype = record->desc.dtype, staging = staging.value()]() -> Result<void> {
           auto &resources = *buffer->resources;
           std::lock_guard lock(resources.backend_mutex);
           auto allocation = resources.backend->allocate(buffer->bytes);
@@ -383,7 +389,7 @@ Result<Tensor> Session::from_host(HostTensorView host) {
             return allocation.error();
           }
           buffer->allocation = allocation.value();
-          return resources.backend->upload(*buffer->allocation, *input);
+          return resources.backend->upload_typed(*buffer->allocation, *input, dtype);
         });
     return Tensor(std::move(record));
   } catch (const std::bad_alloc &) {
@@ -397,6 +403,9 @@ Result<LayoutDesc> Session::query_layout(const TensorDesc &desc, LayoutKind kind
   if (!state_ || state_->closed) {
     return Status{ErrorCode::SessionClosed, "Session closed"};
   }
+  if (!state_->resources->backend->supports_storage(desc.dtype) ||
+      (desc.dtype == DType::F32 && kind != LayoutKind::DenseRowMajor))
+    return Status{ErrorCode::UnsupportedDType, "Unsupported dtype or packed FP32 layout"};
   try {
     return state_->resources->backend->query_layout(desc, kind);
   } catch (const std::bad_alloc &) {
@@ -407,6 +416,8 @@ Result<LayoutDesc> Session::query_layout(const TensorDesc &desc, LayoutKind kind
 }
 
 Result<Event> Session::materialize_layout(const Tensor &tensor, const LayoutDesc &target) {
+  if (tensor.desc().dtype == DType::F32 && target.kind != LayoutKind::DenseRowMajor)
+    return Status{ErrorCode::UnsupportedLayout, "FP32 partials use dense layout"};
   if (!state_ || state_->closed) {
     return Status{ErrorCode::SessionClosed, "Session closed"};
   }
@@ -592,8 +603,10 @@ Result<Tensor> Session::prepare_layouts(const Tensor &tensor,
   }
 }
 
-Result<Tensor> Session::matmul(const Tensor &a, const Tensor &b, OpOptions options) {
-  return compute(OpKind::Matmul, {a, b}, options);
+Result<Tensor> Session::matmul(const Tensor &a, const Tensor &b, OpOptions options, float factor) {
+  OpAttributes attributes;
+  attributes.factor = factor;
+  return compute(OpKind::Matmul, {a, b}, options, attributes);
 }
 
 Result<Tensor> Session::matvec(const Tensor &w, const Tensor &x, OpOptions options) {
@@ -606,6 +619,12 @@ Result<Tensor> Session::linear(const Tensor &x, const Tensor &w, OpOptions optio
     return compute(OpKind::Linear, {x, w, *bias}, options);
   }
   return compute(OpKind::Linear, {x, w}, options);
+}
+
+Result<Tensor> Session::linear_partial(const Tensor &x, const Tensor &w, Engine engine) {
+  OpAttributes attributes;
+  attributes.output_dtype = DType::F32;
+  return compute(OpKind::Linear, {x, w}, {engine, LayoutPolicy::RequirePrepared}, attributes);
 }
 
 Result<Tensor> Session::compute(OpKind kind, const std::vector<Tensor> &tensors, OpOptions options,
@@ -754,11 +773,15 @@ Event DeviceBuffer::ready_event() const {
   return state_->tail;
 }
 
+bool Session::owns(const Tensor &x) const {
+  return state_ && x.record_ && x.record_->dense().buffer->resources == state_->resources;
+}
+
 Result<void> Session::validate(const Tensor &x) const {
   if (!state_ || state_->closed) {
     return Status{ErrorCode::SessionClosed, "Session closed"};
   }
-  if (!x.record_ || x.record_->dense().buffer->resources != state_->resources) {
+  if (!owns(x)) {
     return Status{ErrorCode::SessionMismatch, "Tensor belongs to another session"};
   }
   return {};
@@ -775,6 +798,7 @@ Result<void> Session::validate(const DeviceBuffer &x) const {
 }
 
 Result<DeviceBuffer> Session::allocate(TensorDesc desc) {
+  if (desc.dtype != DType::F16) return Status{ErrorCode::UnsupportedDType, "Mutable buffers require FP16"};
   if (!state_ || state_->closed) {
     return Status{ErrorCode::SessionClosed, "Session closed"};
   }
@@ -824,6 +848,7 @@ Result<Event> Session::copy_into(std::vector<TensorCopy> copies) {
     resolved.reserve(copies.size());
     std::vector<Event> dependencies;
     for (const auto &copy : copies) {
+      if (copy.source.desc().dtype != DType::F16) return Status{ErrorCode::UnsupportedDType, "Region copy requires FP16"};
       if (auto valid = validate(copy.source); !valid) {
         return valid.error();
       }
@@ -871,6 +896,7 @@ Result<Event> Session::copy_into(std::vector<TensorCopy> copies) {
 }
 
 Result<Tensor> Session::snapshot(const DeviceBuffer &source, TensorDesc desc, size_t offset) {
+  if (desc.dtype != DType::F16) return Status{ErrorCode::UnsupportedDType, "Snapshot requires FP16"};
   if (auto valid = validate(source); !valid) {
     return valid.error();
   }

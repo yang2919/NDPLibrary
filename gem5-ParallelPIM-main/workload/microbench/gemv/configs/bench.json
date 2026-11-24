@@ -1,0 +1,5 @@
+{
+  "program": "gemv-bench",
+  "sources": ["src/gemv_bench.c"],
+  "speedups": [["cpu-rvv", "pim"], ["cpu-scalar", "pim"]]
+}

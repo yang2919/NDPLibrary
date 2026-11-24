@@ -1,0 +1,10 @@
+# Extend the cross compiler with extended-gem5 and guest-kernel build tools.
+# Build ndp-pim-cross:24.04 first using the sibling Dockerfile.
+FROM ndp-pim-cross:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential git ca-certificates curl python3-dev pkg-config \
+    zlib1g-dev libprotobuf-dev protobuf-compiler libboost-all-dev \
+    libhdf5-dev libpng-dev libelf-dev libssl-dev \
+    bison flex bc patch xz-utils cpio kmod e2fsprogs fdisk \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace

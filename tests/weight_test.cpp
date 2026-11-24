@@ -1,4 +1,5 @@
 // Verify L3 preparation policy, budget enforcement, reuse, and failure isolation through L2.
+#include "ndp/l1/functional/backend.hpp"
 #include "ndp/l3/weight.hpp"
 #include "test_support.hpp"
 

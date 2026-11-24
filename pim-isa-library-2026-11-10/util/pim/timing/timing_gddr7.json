@@ -1,0 +1,270 @@
+{
+  "format": 1,
+  "standard": "GDDR7",
+  "presets": {
+    "org": "GDDR7_64Gb_x8",
+    "timing": "GDDR7_28000_PAM3",
+    "org_overrides": {},
+    "channels": 8
+  },
+  "clock": {
+    "tCK_ps": 571,
+    "tick_multiplier": 1
+  },
+  "geometry": {
+    "unit": "Channel",
+    "units_per_channel": 1,
+    "banks_per_unit": 16,
+    "bank_groups": 1,
+    "cols_per_row": 64,
+    "col_bytes": 32
+  },
+  "command_cycles": {
+    "ACT": 2,
+    "act_phases": 1,
+    "column": 2,
+    "PREpb": 1,
+    "PREab": 1,
+    "REFab": 1,
+    "ACTab": 2
+  },
+  "read_latency": {
+    "rule": "1 + nRL + nDQERL + nBL",
+    "value": 27
+  },
+  "host": {
+    "rate": 28000,
+    "nBL": 2,
+    "nRL": 24,
+    "nWL": 6,
+    "nDQERL": 0,
+    "nRCDRD": 30,
+    "nRCDWR": 19,
+    "nRP": 30,
+    "nRAS": 60,
+    "nWR": 30,
+    "nRTPSB": 4,
+    "nRRD": 4,
+    "nRREFD": 21,
+    "nWTR": 9,
+    "nWTRSB": 11,
+    "nRCKEN": 6,
+    "nRCKSTOP_LAT": 10,
+    "nRCK_LS": 2,
+    "nRCKSP2ST": 8,
+    "tCK_ps": 571,
+    "nCCD": 2,
+    "nCCDSB": 4,
+    "nPPD": 2,
+    "nRPD": 2,
+    "nREFI": 3327,
+    "nREFIpb": 207,
+    "nRC": 90,
+    "nRTW": 24,
+    "nRFCab": 710,
+    "nRFCpb": 106,
+    "nRDREFab": 28,
+    "nRFMab": 710,
+    "nRFMpb": 106,
+    "nRCKSTRT2RD": 2,
+    "nRCKPST": 2,
+    "nRD2RCKSTOP": 18,
+    "nRCKST2SP": 26
+  },
+  "host_overrides": {
+    "nRFCab": {
+      "value": 710,
+      "was": null,
+      "comment": "P-DRAM Q24 (c): tRFCab 405 ns, x1.5 per density doubling as from GDDR6 8 Gb to GDDR7 16 Gb; JESD239D leaves it to vendors"
+    },
+    "nRFCpb": {
+      "value": 106,
+      "was": null,
+      "comment": "P-DRAM Q24 (c): tRFCpb 60 ns, derived as nRFCab"
+    },
+    "nRFMab": {
+      "value": 710,
+      "was": null,
+      "comment": "Equal to nRFCab, Ramulator 2.1's own rule (gddr7.py:156-158); refresh management inactive"
+    },
+    "nRFMpb": {
+      "value": 106,
+      "was": null,
+      "comment": "Equal to nRFCpb, Ramulator 2.1's own rule (gddr7.py:156-158); refresh management inactive"
+    }
+  },
+  "pim": {
+    "nRCD_AB": {
+      "value": 30,
+      "rule": "nRCDRD",
+      "source": "D8.3"
+    },
+    "nRCDW_AB": {
+      "value": 19,
+      "rule": "nRCDWR",
+      "source": "D8.3"
+    },
+    "nRAS_AB": {
+      "value": 60,
+      "rule": "nRAS",
+      "source": "D8.3"
+    },
+    "nRP_AB": {
+      "value": 30,
+      "rule": "nRP",
+      "source": "D8.3"
+    },
+    "nRRD_AB": {
+      "value": 4,
+      "rule": "nRRD",
+      "source": "D8.3; P-DRAM Q15 (a)"
+    },
+    "nCCD_AB": {
+      "value": 4,
+      "rule": "nCCDSB",
+      "source": "Q12 (b)"
+    },
+    "nCCDW_AB": {
+      "value": 4,
+      "rule": "nCCDSB",
+      "source": "Q12 (b)"
+    },
+    "nAB2PRE_RD": {
+      "value": 4,
+      "rule": "nRTPSB",
+      "source": "D8.3"
+    },
+    "nAB2PRE_WR": {
+      "value": 38,
+      "rule": "nWL + nBL + nWR",
+      "source": "D8.3"
+    },
+    "nCL_GB": {
+      "value": 24,
+      "rule": "nRL",
+      "source": "P-DRAM Q20 (a)"
+    },
+    "nCL_REG": {
+      "value": 24,
+      "rule": "nRL",
+      "source": "P-DRAM Q20 (a)"
+    },
+    "nCWL_GB": {
+      "value": 6,
+      "rule": "nWL",
+      "source": "P-DRAM Q20 (a)"
+    },
+    "nCWL_REG": {
+      "value": 6,
+      "rule": "nWL",
+      "source": "P-DRAM Q20 (a)"
+    },
+    "nCCD_NB": {
+      "value": 2,
+      "rule": "nCCD",
+      "source": "P-DRAM Q20 (a)"
+    },
+    "nEX_AB_RD": {
+      "value": 4,
+      "rule": "nRTPSB",
+      "source": "DP-H (b)"
+    },
+    "nEX_AB_WR": {
+      "value": 8,
+      "rule": "nWL + nBL",
+      "source": "Q11 (c)"
+    },
+    "nSB_RD_DONE": {
+      "value": 4,
+      "rule": "nRTPSB",
+      "source": "Q6 (b)"
+    },
+    "nSB_WR_DONE": {
+      "value": 8,
+      "rule": "nWL + nBL",
+      "source": "P4R section 4.5"
+    }
+  },
+  "derived": {
+    "act_phase": 0,
+    "rcd_rd": 30,
+    "rcd_wr": 19,
+    "rcd_ab": 30,
+    "rcdw_ab": 19,
+    "act_to_col_edge": 0,
+    "sb_rd_spacing": 4,
+    "sb_wr_spacing": 4,
+    "pim_branch": 2,
+    "ab_rd_spacing": 4,
+    "ab_wr_spacing": 4,
+    "pair_act": 4,
+    "nb_sync": 0,
+    "nb_spacing": 2,
+    "nb_rd_extra": 1,
+    "burst": 2,
+    "command_slot": 2,
+    "issue_offset": 2
+  },
+  "U_clocks": {
+    "sb_rd": {
+      "1": 34,
+      "2": 38,
+      "64": 286
+    },
+    "sb_rd2": {
+      "1": 38,
+      "2": 42,
+      "64": 290
+    },
+    "sb_wr": {
+      "1": 27,
+      "2": 31,
+      "64": 279
+    },
+    "ab_rd_ideal": {
+      "1": 34,
+      "2": 38,
+      "64": 286
+    },
+    "ab_wr_ideal": {
+      "1": 27,
+      "2": 31,
+      "64": 279
+    },
+    "ab_rd_baseline": {
+      "1": 94,
+      "2": 98,
+      "64": 346
+    },
+    "ab_wr_baseline": {
+      "1": 87,
+      "2": 91,
+      "64": 339
+    },
+    "ab_rd_aespa": {
+      "1": 94,
+      "2": 101,
+      "64": 2084
+    },
+    "ab_ew_aespa": {
+      "1": 94,
+      "2": 98,
+      "64": 1068
+    },
+    "ab_wr_aespa": {
+      "1": 87,
+      "2": 93,
+      "64": 2077
+    },
+    "nb_ld": {
+      "1": 27,
+      "2": 29,
+      "64": 153
+    },
+    "nb_st": {
+      "1": 8,
+      "2": 10,
+      "64": 134
+    }
+  }
+}

@@ -1,0 +1,417 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Tue Sep 29 18:23:01 2026
+| Host         : ubuntu running 64-bit Ubuntu 24.04.5 LTS
+| Command      : report_methodology -file methodology.rpt
+| Design       : fpga_top_vhk158
+| Device       : xcvh1582-vsva3697-2MP-e-S
+| Speed File   : -2MP
+| Design State : Fully Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Report Methodology
+
+Table of Contents
+-----------------
+1. REPORT SUMMARY
+2. REPORT DETAILS
+
+1. REPORT SUMMARY
+-----------------
+            Netlist: netlist
+          Floorplan: checkpoint_fpga_top_vhk158_postroute_physopt
+      Design limits: <entire design considered>
+             Max checks: <unlimited>
+             Checks found: 76
++----------+----------+--------------------------------------------+--------+
+| Rule     | Severity | Description                                | Checks |
++----------+----------+--------------------------------------------+--------+
+| AVAL-344 | Warning  | Design_needs_USER_RAM_AVERAGE_ACTIVITY_set | 1      |
+| LUTAR-1  | Warning  | LUT drives async reset alert               | 1      |
+| SYNTH-10 | Warning  | Wide multiplier                            | 74     |
++----------+----------+--------------------------------------------+--------+
+
+2. REPORT DETAILS
+-----------------
+AVAL-344#1 Warning
+Design_needs_USER_RAM_AVERAGE_ACTIVITY_set  
+The design property USER_RAM_AVERAGE_ACTIVITY on the top-level current_design object is unset (or set to -1).  The estimated RAM_AVERAGE_ACTIVITY used for the design is 3 and assumes a worst-case switching scenario for the URAM and BRAM.  RAM activity directly impacts clock uncertainty and the RAM_AVERAGE_ACTIVITY property may not be accurate for designs that are not final.  It is recommended that the USER_RAM_AVERAGE_ACTIVITY property be specified.  Please refer to the Versal ACAP Clocking Resources Architecture Manual and the Versal ACAP Hardware, IP, and Platform Development Methodology User Guide for more information on specifying the USER_RAM_AVERAGE_ACTIVITY.
+Related violations: <none>
+
+LUTAR-1#1 Warning
+LUT drives async reset alert  
+LUT cell u_bd/rst_n_meta_i_1, with 2 or more inputs, drives asynchronous preset/clear pin(s) rst_n_meta_reg/CLR, rst_n_sync_reg/CLR. The LUT may glitch and trigger an unexpected reset, even if it is a properly timed path.
+Related violations: <none>
+
+SYNTH-10#1 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#2 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__0 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#3 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__1 of size 24x7, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#4 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__10 of size 24x7, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#5 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__2 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#6 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__3 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#7 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__4 of size 24x7, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#8 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__5 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#9 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__6 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#10 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__7 of size 24x7, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#11 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__8 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#12 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__9 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#13 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#14 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__0 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#15 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__1 of size 24x10, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#16 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__2 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#17 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__3 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#18 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__4 of size 24x10, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#19 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0 of size 24x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#20 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__0 of size 19x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#21 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__1 of size 19x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#22 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__2 of size 24x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#23 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__3 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#24 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__4 of size 19x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#25 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__5 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#26 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__6 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#27 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[0].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__7 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#28 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#29 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__0 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#30 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__1 of size 24x7, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#31 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__10 of size 24x7, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#32 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__2 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#33 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__3 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#34 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__4 of size 24x7, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#35 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__5 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#36 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__6 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#37 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__7 of size 24x7, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#38 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__8 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#39 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/fpu_gen.gen_vtrans.i_vtrans_unit/p_0_out__9 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#40 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#41 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__0 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#42 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__1 of size 24x10, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#43 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__2 of size 10x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#44 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__3 of size 24x24, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#45 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew32/mul_res0__4 of size 24x10, it is decomposed from a wide multipler into 4 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#46 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0 of size 24x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#47 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__0 of size 19x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#48 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__1 of size 19x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#49 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__2 of size 24x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#50 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__3 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#51 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__4 of size 19x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#52 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__5 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#53 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__6 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#54 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/gen_lanes[1].i_lane/i_vfus/i_vmfpu/i_simd_mul_ew64/mul_res0__7 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#55 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/i_vlsu/i_addrgen/lookahead_addr_se_q1 of size 13x19, it is decomposed from a wide multipler into 3 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#56 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/i_vlsu/i_addrgen/lookahead_addr_se_q1__0 of size 13x24, it is decomposed from a wide multipler into 3 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#57 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ara/i_vlsu/i_addrgen/lookahead_addr_se_q1__1 of size 13x24, it is decomposed from a wide multipler into 3 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#58 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups[0].i_opgroup_block/gen_parallel_slices[1].active_format.i_fmt_slice/gen_num_lanes[0].active_lane.lane_instance.i_fma/product of size 24x8, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#59 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups[0].i_opgroup_block/gen_parallel_slices[1].active_format.i_fmt_slice/gen_num_lanes[0].active_lane.lane_instance.i_fma/product__0 of size 8x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#60 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups[0].i_opgroup_block/gen_parallel_slices[1].active_format.i_fmt_slice/gen_num_lanes[0].active_lane.lane_instance.i_fma/product__1 of size 24x8, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#61 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups[0].i_opgroup_block/gen_parallel_slices[1].active_format.i_fmt_slice/gen_num_lanes[0].active_lane.lane_instance.i_fma/product__2 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#62 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups[0].i_opgroup_block/gen_parallel_slices[1].active_format.i_fmt_slice/gen_num_lanes[0].active_lane.lane_instance.i_fma/product__3 of size 8x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#63 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups[0].i_opgroup_block/gen_parallel_slices[1].active_format.i_fmt_slice/gen_num_lanes[0].active_lane.lane_instance.i_fma/product__4 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#64 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups[0].i_opgroup_block/gen_parallel_slices[1].active_format.i_fmt_slice/gen_num_lanes[0].active_lane.lane_instance.i_fma/product__5 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#65 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/fpu_gen.fpu_i/fpu_gen.i_fpnew_bulk/gen_operation_groups[0].i_opgroup_block/gen_parallel_slices[1].active_format.i_fmt_slice/gen_num_lanes[0].active_lane.lane_instance.i_fma/product__6 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#66 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_d of size 24x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#67 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_d__0 of size 19x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#68 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_d__1 of size 24x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#69 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_d__2 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#70 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_d__3 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#71 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_d__4 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#72 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_q_reg of size 19x19, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#73 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_q_reg__0 of size 19x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+SYNTH-10#74 Warning
+Wide multiplier  
+Detected multiplier at u_soc/i_system/i_ariane/ex_stage_i/i_mult/i_multiplier/mult_result_q_reg__1 of size 24x24, it is decomposed from a wide multipler into 9 DSP blocks.
+Related violations: <none>
+
+

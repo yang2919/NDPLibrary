@@ -1,5 +1,6 @@
 // Provide independent FP16 numerical references and backend forwarding helpers for tests.
 #pragma once
+#include "ndp/l1/functional/backend.hpp"
 #include "ndp/l2/session.hpp"
 
 #include <cmath>

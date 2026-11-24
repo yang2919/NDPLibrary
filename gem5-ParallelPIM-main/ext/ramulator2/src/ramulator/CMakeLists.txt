@@ -1,0 +1,8 @@
+add_subdirectory(base)
+add_subdirectory(frontend)
+add_subdirectory(translation)
+add_subdirectory(memory_system)
+add_subdirectory(dram)
+add_subdirectory(controller)
+add_subdirectory(pim)
+add_subdirectory(power)

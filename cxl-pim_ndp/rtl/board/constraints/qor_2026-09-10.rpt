@@ -1,0 +1,41 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Thu Sep 10 11:22:56 2026
+| Host         : ubuntu running 64-bit Ubuntu 24.04.4 LTS
+| Command      : report_qor_suggestions -file constraints/qor_2026-09-10.rpt
+| Design       : fpga_top_vhk158
+| Device       : xcvh1582
+| Design State : Physopt postRoute
+| ML Models    : v2020.1.0
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Report QoR Suggestions
+
+Table of Contents
+-----------------
+1. QoR Suggestions Report Summary
+2. QoR Suggestions - Congestion
+
+1. QoR Suggestions Report Summary
+---------------------------------
+
++--------------+------------+-----------+--------------------+----------------+-----------+-------------+----------------------+------------------------------------------------------------------------------------------+-------------+
+|     Name     |     Id     |   Status  |    Generated At    | Applicable For | Automatic |    Scope    | Incremental Friendly |                                        Description                                       |    Source   |
++--------------+------------+-----------+--------------------+----------------+-----------+-------------+----------------------+------------------------------------------------------------------------------------------+-------------+
+| RQS_CONG-9-1 | RQS_CONG-9 | Generated | postroute_phys_opt | opt_design     | Yes       | GLOBALSCOPE | No                   | Congestion due to over-replication. Merging logically-identical cells in the congested   | Current Run |
+|              |            |           |                    |                |           |             |                      | region using the EQUIVALENT_DRIVER_OPT MERGE property can reduce congestion.             |             |
++--------------+------------+-----------+--------------------+----------------+-----------+-------------+----------------------+------------------------------------------------------------------------------------------+-------------+
+* By default the number of failing paths is limited to 100. Use the -max_paths options to override.
+
+
+2. QoR Suggestions - Congestion
+-------------------------------
+
++--------------+-------+-------+-----------+------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------+
+|     Name     | Level |  Type | Direction |                  Window                  |                                                                      Congested Modules                                                                     | High Fanout |
++--------------+-------+-------+-----------+------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------+
+| RQS_CONG-9-1 | 5     | SHORT | South     | (CLE_E_CORE_X97Y100,CLE_E_CORE_X112Y131) | u_soc/i_system/i_ariane/ex_stage_i/lsu_i, u_soc/i_system/i_ariane/issue_stage_i/i_scoreboard, u_soc/i_system/i_ariane/issue_stage_i/i_issue_read_operands  | NA          |
++--------------+-------+-------+-----------+------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------+
+
+

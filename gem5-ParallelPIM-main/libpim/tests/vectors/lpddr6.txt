@@ -1,0 +1,27 @@
+# An LPDDR6 x 8 memory (the default layout is x 16; the geometry below is
+# explicit, so the results do not depend on it):
+# RoRaBaChCo, 4 bank groups x 4 banks, 65536 rows of 64 columns of 32
+# bytes (16 bf16 per column), VLMAX 256 bytes. Results computed by hand.
+
+geom policy=0 channels=8 intlv=2048 units=1 sids=1 bgs=4 banks=4 rows=65536 cols=64 col_bytes=32 num_regs=1 num_fmt=bf16 acc_fmt=fp32 vlenb=32
+
+# GEMV step: the vector into channel 5's GB, then pim.ab.mac over one
+# column: every bank of the unit multiplies its row by the GB.
+cmd pim.wr.gb ch=5 bf16 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+row ch=5 bg=2 bank=3 row=1000 bf16 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+row ch=5 bg=0 bank=0 row=1000 bf16 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2
+cmd pim.ab.mac ch=5 row=1000 col=0 bytes=32
+expect acc ch=5 bg=2 bank=3 fp32 136
+expect acc ch=5 bg=0 bank=0 fp32 32
+expect acc ch=5 bg=1 bank=1 fp32 0
+expect acc ch=4 bg=2 bank=3 fp32 0
+# Gather the accumulator through the register window (row 65535).
+cmd pim.rd.reg ch=5 bg=2 bank=3 row=acc bytes=8
+expect read fp32 136 0
+# The register rows are the top rows: REG_ROW0 = 65534.
+cmd pim.wr.reg ch=5 bg=2 bank=3 row=65534 col=63 bf16 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7
+expect reg ch=5 bg=2 bank=3 j=0 col=63 bf16 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7
+# An element-wise pair, banks 2 and 3 of bank group 2.
+row ch=5 bg=2 bank=2 row=1000 bf16 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1
+cmd pim.sb.ewadd ch=5 bg=2 bank=2 row=1000 col=0 ncols=1
+expect reg ch=5 bg=2 bank=2 j=0 bf16 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17 17

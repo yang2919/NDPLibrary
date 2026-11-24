@@ -1,0 +1,60 @@
+# Number formats: integer wrap-around, fp16 rounding and subnormals, and
+# an fp16 accumulator. Same small RoRaBaChCo memory as basic_bf16.txt,
+# 8-byte columns. Results computed by hand.
+
+# int16 operands, int32 accumulator: 4 elements per column.
+geom policy=0 channels=2 intlv=32 units=1 sids=1 bgs=2 banks=2 rows=16 cols=4 col_bytes=8 num_fmt=int16 acc_fmt=int32
+row ch=0 bank=0 row=1 int16 32767 -5 100 -32768
+row ch=0 bank=1 row=1 int16 1 3 200 -1
+cmd pim.sb.ewadd ch=0 bank=0 row=1 col=0 ncols=1
+expect reg ch=0 bank=0 j=0 int16 -32768 -2 300 32767
+row ch=0 bank=0 row=2 int16 300 -2 256 -1
+row ch=0 bank=1 row=2 int16 300 3 256 -1
+cmd pim.sb.ewmul ch=0 bank=0 row=2 col=0 ncols=1
+expect reg ch=0 bank=0 j=0 int16 24464 -6 0 1
+# MAC: 1000 x (1000 + 2000 - 3000 + 4000) = 4000000, added to an
+# accumulator of 2147483000: 2151483000 wraps to -2143484296.
+gb ch=0 int16 1000 1000 1000 1000
+row ch=0 bg=1 bank=1 row=3 int16 1000 2000 -3000 4000
+acc ch=0 bg=1 bank=1 int32 2147483000
+cmd pim.sb.mac ch=0 bg=1 bank=1 row=3 col=0 ncols=1
+expect acc ch=0 bg=1 bank=1 int32 -2143484296
+
+# int8 operands, int32 accumulator: 8 elements per column.
+geom policy=0 channels=2 intlv=32 units=1 sids=1 bgs=2 banks=2 rows=16 cols=4 col_bytes=8 num_fmt=int8 acc_fmt=int32
+row ch=1 bank=0 row=1 int8 127 -128 1 2 3 4 5 6
+row ch=1 bank=1 row=1 int8 1 -1 -1 2 3 4 5 6
+cmd pim.sb.ewadd ch=1 bank=0 row=1 col=0 ncols=1
+expect reg ch=1 bank=0 j=0 int8 -128 127 0 4 6 8 10 12
+gb ch=1 int8 127 127 127 127 127 127 127 127
+row ch=1 bg=1 bank=0 row=4 int8 127 127 127 127 127 127 127 127
+cmd pim.sb.mac ch=1 bg=1 bank=0 row=4 col=0 ncols=1
+expect acc ch=1 bg=1 bank=0 int32 129032
+
+# fp16 operands, fp32 accumulator.
+geom policy=0 channels=2 intlv=32 units=1 sids=1 bgs=2 banks=2 rows=16 cols=4 col_bytes=8 num_fmt=fp16 acc_fmt=fp32
+# Sums: 1 + 2^-11 (0x1000) is a tie and rounds to 1 (even); 1 + 3 x
+# 2^-11 (0x1600) is a tie and rounds up to 0x3c02 (even); 2^-14 + 0.5
+# rounds to 0.5 (0x3800); 65504 + 32 = 65536 overflows to infinity
+# (0x7c00). Products: 2^-14 x 0.5 = 2^-15 is subnormal (0x0200).
+row ch=0 bank=0 row=5 fp16 1 1 0x0400 65504
+row ch=0 bank=1 row=5 fp16 0x1000 0x1600 0.5 32
+cmd pim.sb.ewadd ch=0 bank=0 row=5 col=0 ncols=1
+expect reg ch=0 bank=0 j=0 fp16 0x3c00 0x3c02 0x3800 0x7c00
+cmd pim.sb.ewmul ch=0 bank=0 row=5 col=0 ncols=1
+expect reg ch=0 bank=0 j=0 fp16 0x1000 0x1600 0x0200 0x7c00
+gb ch=0 fp16 1 2 3 4
+row ch=0 bg=1 bank=0 row=6 fp16 0.5 0.25 2 -1
+cmd pim.sb.mac ch=0 bg=1 bank=0 row=6 col=0 ncols=1
+# 1 x 0.5 + 2 x 0.25 + 3 x 2 - 4 x 1 = 3
+expect acc ch=0 bg=1 bank=0 fp32 3
+
+# fp16 operands, fp16 accumulator: 2048 + 1 is a tie in fp16 and stays
+# 2048 (0x6800), so the products 2048, 1, 1, 1 sum to 2048 in order.
+geom policy=0 channels=2 intlv=32 units=1 sids=1 bgs=2 banks=2 rows=16 cols=4 col_bytes=8 num_fmt=fp16 acc_fmt=fp16
+gb ch=0 fp16 1 1 1 1
+row ch=0 bank=0 row=7 fp16 2048 1 1 1
+cmd pim.sb.mac ch=0 bank=0 row=7 col=0 ncols=1
+expect acc ch=0 bank=0 fp16 0x6800
+cmd pim.rd.reg ch=0 bank=0 row=acc bytes=4
+expect read fp16 0x6800 0

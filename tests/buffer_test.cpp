@@ -1,4 +1,5 @@
 // Verify generic buffer mutation, immutable snapshots, validation, and failure recovery without L3.
+#include "ndp/l1/functional/backend.hpp"
 #include "ndp/common/fp16.hpp"
 #include "ndp/l2/session.hpp"
 

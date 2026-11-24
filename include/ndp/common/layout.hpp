@@ -4,7 +4,7 @@
 
 namespace ndp {
 // TestTile4x4 is a functional test format, NOT an AiM/FPGA memory mapping.
-enum class LayoutKind { DenseRowMajor, TestTile4x4 };
+enum class LayoutKind { DenseRowMajor, TestTile4x4, PimBanked };
 
 struct LayoutDesc {
   LayoutKind kind = LayoutKind::DenseRowMajor;

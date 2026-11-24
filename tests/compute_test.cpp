@@ -1,4 +1,5 @@
 // Verify FP16 conversion, compute accuracy, layout preparation, and workspace reuse.
+#include "ndp/l1/functional/backend.hpp"
 #include "ndp/common/fp16.hpp"
 #include "test_support.hpp"
 

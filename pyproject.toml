@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "torch>=2.9"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ndp-library"
+version = "0.1.0"
+description = "Explicit PyTorch bindings for the single-device NDP runtime"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.9"]
+
+[tool.setuptools.packages.find]
+where = ["python"]

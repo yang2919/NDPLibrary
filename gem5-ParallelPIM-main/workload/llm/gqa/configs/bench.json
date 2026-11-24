@@ -1,0 +1,6 @@
+{
+  "program": "gqa",
+  "sources": ["src/gqa.c", "../common/llm.c", "../common/llm_attn.c"],
+  "includes": ["llm/common", "llm/gqa/src"],
+  "config": "workload/llm/configs/llm_se.py"
+}

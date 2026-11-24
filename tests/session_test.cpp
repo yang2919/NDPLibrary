@@ -1,4 +1,5 @@
 // Verify session I/O, validation, shared ownership, failure cleanup, and shutdown behavior.
+#include "ndp/l1/functional/backend.hpp"
 #include "ndp/l2/session.hpp"
 
 #include <array>
@@ -109,7 +110,7 @@ void validation() {
   CHECK(!byte_size({{}, DType::F16}));
   CHECK(!byte_size({{0}, DType::F16}));
   CHECK(!byte_size({{std::numeric_limits<uint64_t>::max(), 2}, DType::F16}));
-  CHECK(!byte_size({{1}, DType::F32}));
+  CHECK(byte_size({{1}, DType::F32}).value() == 4);
   CHECK(byte_size({{3}, DType::F16}).value() == 6);
   auto dtype = byte_size({{1}, DType::BF16});
   CHECK(!dtype && dtype.error().code == ErrorCode::UnsupportedDType);

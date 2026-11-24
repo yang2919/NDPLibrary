@@ -1,0 +1,109 @@
+# Build of the Processing-in-Memory (PIM) library, laid out as util/m5.
+#
+#   scons -C util/pim riscv.CROSS_COMPILE=riscv64-linux-gnu- build/riscv
+#       -> build/riscv/out/libpim_<std>.a, one archive per default layout
+#   scons -C util/pim build/native/test
+#       -> host build with the reference backend, and the host tests
+#
+# See util/pim/README.md.
+
+import os
+
+main = Environment(ENV={"PATH": os.environ.get("PATH", "")})
+
+gem5_root = Dir("..").Dir("..")
+include_dir = gem5_root.Dir("include")
+src_dir = Dir("src")
+build_dir = Dir("build")
+
+main.SConsignFile(build_dir.File("sconsign").abspath)
+
+AddOption(
+    "--debug-build",
+    dest="debug_build",
+    action="store_true",
+    help="Build with debug info, and disable optimizations.",
+)
+AddOption("--verbose", dest="verbose", action="store_true")
+
+if GetOption("debug_build"):
+    main.Append(CCFLAGS=["-O0", "-g"])
+else:
+    main.Append(CCFLAGS=["-O2"])
+main.Append(CCFLAGS=["-Wall", "-Wextra"])
+# No fused multiply-add, so that the reference model's floating-point
+# results do not depend on the compiler.
+main.Append(CCFLAGS=["-ffp-contract=off"])
+main.Append(CFLAGS=["-std=c11"])
+main.Append(CXXFLAGS=["-std=c++17"])
+main.Append(CPPPATH=[include_dir, src_dir])
+# POSIX and BSD functions (mmap flags, ftruncate, fork) under -std=c11.
+main.Append(CPPDEFINES=["_DEFAULT_SOURCE"])
+# PIM_DEBUG=1 builds the archives with the misuse checks (LQ9 (c)).
+if ARGUMENTS.get("PIM_DEBUG", "0") not in ("0", ""):
+    main.Append(CPPDEFINES=["PIM_DEBUG"])
+
+if not GetOption("verbose"):
+
+    class ComStr:
+        def __init__(self, cmd):
+            self.cmd = cmd
+
+        def __call__(self, target, source, env, for_signature=None):
+            return self.cmd + " " + ", ".join(str(t) for t in target)
+
+    for var, text in (
+        ("CCCOMSTR", "CC"),
+        ("CXXCOMSTR", "CXX"),
+        ("ASPPCOMSTR", "AS"),
+        ("LINKCOMSTR", "LINK"),
+        ("ARCOMSTR", "AR"),
+        ("RANLIBCOMSTR", "RANLIB"),
+    ):
+        main[var] = ComStr(text)
+
+main["GEM5_ROOT"] = gem5_root
+main["PIM_ROOT"] = Dir(".")
+main["PYTHON"] = "python3 -B"
+
+# A custom layout header (util/pim/gen_pim_layout.py -o ...) builds one
+# more archive, libpim_custom.a.
+layout = ARGUMENTS.get("PIM_LAYOUT")
+main["PIM_CUSTOM_LAYOUT"] = File(layout).abspath if layout else None
+
+# The host (native) build: the reference backend and the tests.
+native = main.Clone(VARIANT="native")
+native.SConscript(
+    src_dir.File("SConscript"),
+    variant_dir=build_dir.Dir("native"),
+    exports={"env": native},
+    duplicate=False,
+)
+
+# The RISC-V cross build. As in util/m5, the prefix is set with
+# riscv.CROSS_COMPILE on the command line or in the environment.
+riscv = main.Clone(VARIANT="riscv")
+riscv["CROSS_COMPILE"] = os.environ.get(
+    "riscv.CROSS_COMPILE",
+    ARGUMENTS.get("riscv.CROSS_COMPILE", "riscv64-unknown-linux-gnu-"),
+)
+for tool, name in (
+    ("CC", "gcc"),
+    ("CXX", "g++"),
+    ("AS", "as"),
+    ("AR", "ar"),
+    ("RANLIB", "ranlib"),
+    ("OBJDUMP", "objdump"),
+):
+    riscv[tool] = "${CROSS_COMPILE}" + name
+riscv.Append(CCFLAGS=["-march=rv64gcv_zicbom", "-mabi=lp64d"])
+riscv.Append(ASFLAGS=["-march=rv64gcv_zicbom", "-mabi=lp64d"])
+riscv.Append(LINKFLAGS=["-static"])
+riscv.SConscript(
+    src_dir.File("SConscript"),
+    variant_dir=build_dir.Dir("riscv"),
+    exports={"env": riscv},
+    duplicate=False,
+)
+
+Default(build_dir.Dir("native"), build_dir.Dir("riscv").Dir("out"))

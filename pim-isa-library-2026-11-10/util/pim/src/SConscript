@@ -1,0 +1,419 @@
+# Sources, archives and tests of the PIM library, for one variant
+# (native or riscv); see ../SConstruct.
+
+import os
+import subprocess
+
+Import("env")
+
+STANDARDS = ("ddr5", "lpddr6", "gddr7", "hbm4")
+pim_root = env["PIM_ROOT"]
+tests_dir = pim_root.Dir("tests")
+native = env["VARIANT"] == "native"
+
+# Runtime and API sources (L4-L6), compiled once per layout.
+lib_sources = [
+    "layout.c",
+    "init.c",
+    "region.c",
+    "alloc.c",
+    "regs.c",
+    "bf16.c",
+    "copy.c",
+    "sync.c",
+    "tensor.c",
+    "ops.c",
+]
+# Reference backend sources (L3), host only.
+ref_sources = ["ref/model.c", "ref/numfmt.c"]
+
+
+def layout_env(base, name, header=None, node=None):
+    """An environment that compiles for one layout."""
+    e = base.Clone(LAYOUT=name, LAYOUT_NODE=node)
+    if header is not None:
+        e.Append(CPPDEFINES=[("PIM_LAYOUT_HEADER", '\\"%s\\"' % header)])
+    else:
+        e.Append(CPPDEFINES=[("PIM_STD", name)])
+    if native:
+        e.Append(CPPDEFINES=["PIM_BACKEND_REF"], LIBS=["m"])
+    return e
+
+
+def library(e):
+    """libpim_<layout>.a (riscv) or libpim_ref_<layout>.a (native)."""
+    name = e["LAYOUT"]
+    srcs = lib_sources + (ref_sources if native else [])
+    objs = [
+        e.Object(target="obj/%s/%s" % (name, os.path.splitext(s)[0]), source=s)
+        for s in srcs
+    ]
+    if e.get("LAYOUT_NODE") is not None:
+        Depends(objs, e["LAYOUT_NODE"])
+    if native:
+        return e.StaticLibrary("libpim_ref_%s" % name, objs)
+    return e.StaticLibrary("out/libpim_%s" % name, objs)
+
+
+def run_test(e, name, argv, deps, expect_fail=False):
+    """Run a test program; its output goes to test/result/<name>.log."""
+
+    def action(target, source, env):
+        log = str(target[0])
+        cmd = [env.subst(a) if isinstance(a, str) else str(a) for a in argv]
+        with open(log, "w") as f:
+            rc = subprocess.call(
+                cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(pim_root)
+            )
+        with open(log) as f:
+            text = f.read()
+        failed = (rc == 0) if expect_fail else (rc != 0)
+        if failed:
+            print(text)
+            print("FAIL %s (exit status %d)" % (name, rc))
+            return 1
+        print("PASS %s" % name)
+        return 0
+
+    t = e.Command(
+        "test/result/%s.log" % name,
+        deps,
+        Action(action, "TEST %s" % name),
+    )
+    AlwaysBuild(t)
+    return t
+
+
+def test_program(e, name, sources, libs, cxx=False):
+    """A test program linked against the given archives."""
+    layout = e["LAYOUT"]
+    objs = Flatten(
+        [
+            e.Object(
+                target="test/obj/%s/%s" % (layout, os.path.splitext(s)[0]),
+                source=tests_dir.File(s),
+            )
+            for s in sources
+        ]
+    )
+    if e.get("LAYOUT_NODE") is not None:
+        Depends(objs, e["LAYOUT_NODE"])
+    link_env = e.Clone()
+    if cxx:
+        link_env["LINK"] = "$CXX"
+    return (
+        link_env.Program("test/bin/%s_%s" % (name, layout), objs + libs),
+        objs,
+    )
+
+
+layouts = [layout_env(env, std) for std in STANDARDS]
+if env["PIM_CUSTOM_LAYOUT"]:
+    layouts.append(layout_env(env, "custom", env["PIM_CUSTOM_LAYOUT"]))
+libs = {e["LAYOUT"]: library(e) for e in layouts}
+
+if native:
+    # L0: the generator and the committed default headers.
+    run_test(
+        env,
+        "test_gen_layout",
+        ["python3", "-B", tests_dir.File("test_gen_layout.py")],
+        [
+            tests_dir.File("test_gen_layout.py"),
+            pim_root.File("gen_pim_layout.py"),
+        ]
+        + [
+            env["GEM5_ROOT"].File("include/gem5/pim/pim_layout_%s.h" % s)
+            for s in STANDARDS
+        ],
+    )
+    # P5b.2: the timing tables and the unloaded-latency model.
+    timing_dir = pim_root.Dir("timing")
+    run_test(
+        env,
+        "test_timing",
+        ["python3", "-B", timing_dir.File("tests/test_timing.py")],
+        [
+            timing_dir.File("tests/test_timing.py"),
+            timing_dir.File("pim_timing.py"),
+            pim_root.File("gen_pim_layout.py"),
+        ]
+        + [timing_dir.File("timing_%s.json" % s) for s in STANDARDS],
+    )
+    # P5b.1: the final PIM values on the derived Ramulator 2.1 standards.
+    ramulator_dram = env["GEM5_ROOT"].Dir("ext/ramulator2/python/ramulator/dram")
+    run_test(
+        env,
+        "test_presets",
+        ["python3", "-B", timing_dir.File("tests/test_presets.py")],
+        [
+            timing_dir.File("tests/test_presets.py"),
+            timing_dir.File("pim_timing.py"),
+        ]
+        + [
+            ramulator_dram.File(f)
+            for f in ("pim.py", "spec.py")
+            + tuple("%s_pim.py" % s for s in STANDARDS)
+        ],
+    )
+    # P5b.5: the sensitivity report.
+    run_test(
+        env,
+        "test_sweep",
+        ["python3", "-B", timing_dir.File("tests/test_sweep.py")],
+        [
+            timing_dir.File("tests/test_sweep.py"),
+            timing_dir.File("sweep.py"),
+            timing_dir.File("sensitivity.md"),
+            timing_dir.File("pim_timing.py"),
+        ]
+        + [timing_dir.File("timing_%s.json" % s) for s in STANDARDS],
+    )
+
+# The cross C++ compiler is optional (riscv64-linux-gnu-g++).
+have_cxx = native or env.Detect(env.subst("$CXX")) is not None
+
+include_objs = {}
+for e in layouts:
+    layout = e["LAYOUT"]
+    prog, objs = test_program(
+        e, "test_include", ["test_include.c"], [libs[layout]]
+    )
+    include_objs[layout] = objs
+    if have_cxx:
+        progxx, _ = test_program(
+            e,
+            "test_include_cxx",
+            ["test_include_cxx.cc"],
+            [libs[layout]],
+            cxx=True,
+        )
+    if native:
+        run_test(e, "test_include_" + layout, [prog[0]], prog)
+        run_test(e, "test_include_cxx_" + layout, [progxx[0]], progxx)
+
+# DP-B: a program built for one layout does not link against the archive
+# of another one.
+wrong = env.Clone()
+run_test(
+    wrong,
+    "test_wrong_layout_link_" + env["VARIANT"],
+    ["$CC", "-o", os.devnull]
+    + include_objs["lpddr6"]
+    + [libs["ddr5"][0]]
+    + (["-static"] if not native else []),
+    include_objs["lpddr6"] + libs["ddr5"],
+    expect_fail=True,
+)
+
+# L1: the encoder and decoder against the reference decoders.
+if native:
+    ref_decode = tests_dir.File("ref_decode.py")
+    vectors = env.Command(
+        "test/vectors/addr_vectors.txt",
+        [ref_decode, pim_root.File("gen_pim_layout.py")],
+        "python3 -B ${SOURCES[0]} vectors $TARGET > /dev/null",
+    )
+    run_test(
+        env,
+        "test_ref_decode_selftest",
+        ["python3", "-B", ref_decode, "selftest"],
+        [ref_decode, pim_root.File("gen_pim_layout.py")],
+    )
+    for e in layouts:
+        layout = e["LAYOUT"]
+        prog, _ = test_program(e, "test_addr", ["test_addr.c"], [])
+        argv = [prog[0]] + (vectors if layout == "lpddr6" else [])
+        run_test(e, "test_addr_" + layout, argv, prog + vectors)
+    # pim_addr.h with gem5's C++ flags (SConstruct:589-595) and -Werror.
+    gem5_cxx = env.Clone()
+    gem5_cxx.Replace(CCFLAGS=["-O2"], CXXFLAGS=[])
+    gem5_cxx.Append(
+        CCFLAGS=[
+            "-pipe",
+            "-fno-strict-aliasing",
+            "-Wall",
+            "-Wundef",
+            "-Wextra",
+            "-Wno-sign-compare",
+            "-Wno-unused-parameter",
+            "-Werror",
+        ],
+        CXXFLAGS=["-std=c++17"],
+        CPPDEFINES=[("PIM_STD", "lpddr6")],
+        LAYOUT="gem5flags",
+    )
+    prog, _ = test_program(
+        gem5_cxx, "test_addr_cxx", ["test_addr_cxx.cc"], [], cxx=True
+    )
+    run_test(gem5_cxx, "test_addr_cxx", [prog[0]], prog)
+
+# L2: the machine words of the wrappers against P2 section 1.2.
+if not native:
+    enc_c = env.Object("test/obj/encoding_c", tests_dir.File("encoding_c.c"))
+    enc_s = env.Object("test/obj/encoding_s", tests_dir.File("encoding_s.S"))
+    debug_env = env.Clone()
+    debug_env.Append(CPPDEFINES=["PIM_DEBUG"])
+    enc_debug = debug_env.Object(
+        "test/obj/encoding_c_debug", tests_dir.File("encoding_c.c")
+    )
+    script = tests_dir.File("test_encoding.sh")
+    run_test(
+        env,
+        "test_encoding",
+        ["sh", script, "$OBJDUMP", enc_c[0], enc_s[0]],
+        enc_c + enc_s + enc_debug + [script],
+    )
+
+# L3: the reference model against hand-computed results.
+if native:
+    e = layouts[1]  # lpddr6; the model takes its geometry at run time
+    prog, _ = test_program(e, "test_model", ["test_model.c"], [libs["lpddr6"]])
+    vectors_dir = tests_dir.Dir("vectors")
+    vector_files = sorted(
+        vectors_dir.File(f)
+        for f in os.listdir(vectors_dir.srcnode().abspath)
+        if f.endswith(".txt")
+    )
+    run_test(e, "test_model", [prog[0]], prog)
+    run_test(
+        e, "test_model_vectors", [prog[0]] + vector_files, prog + vector_files
+    )
+
+# L4: the runtime.
+if native:
+    for e in layouts:
+        layout = e["LAYOUT"]
+        prog, _ = test_program(
+            e, "test_runtime", ["test_runtime.c"], [libs[layout]]
+        )
+        run_test(e, "test_runtime_" + layout, [prog[0]], prog)
+    # The misuse checks, with the runtime built with PIM_DEBUG too.
+    debug = layouts[1].Clone(LAYOUT="lpddr6_debug")
+    debug.Append(CPPDEFINES=["PIM_DEBUG"])
+    debug_lib = debug.StaticLibrary(
+        "test/libpim_ref_lpddr6_debug",
+        [
+            debug.Object(
+                target="obj/lpddr6_debug/" + os.path.splitext(src)[0],
+                source=src,
+            )
+            for src in lib_sources + ref_sources
+        ],
+    )
+    prog, _ = test_program(debug, "test_debug", ["test_debug.c"], debug_lib)
+    run_test(debug, "test_debug", [prog[0]], prog)
+
+# L4 on the guest: pim_init() for a manual run in gem5 (not run here).
+if not native:
+    for e in layouts:
+        test_program(e, "test_init", ["test_init.c"], [libs[e["LAYOUT"]]])
+
+# L5-L6: a matrix of generated layouts, every standard and policy, plus
+# a few non-default interleaves, channel counts and formats.
+POLICIES = (
+    "RoRaBaChCo",
+    "RoRaBaCoCh",
+    "RoCoRaBaCh",
+    "RoBaRaCoCh",
+    "ChRaBaRoCo",
+    "MOP4CLXOR",
+)
+matrix = [
+    ("%s_%s" % (std, p), ["--standard", std, "--policy", p])
+    for std in STANDARDS
+    for p in POLICIES
+] + [
+    (
+        "lpddr6_RoBaRaCoCh_i256",
+        [
+            "--standard",
+            "lpddr6",
+            "--policy",
+            "RoBaRaCoCh",
+            "--interleave",
+            "256",
+        ],
+    ),
+    (
+        "hbm4_MOP4CLXOR_i256",
+        ["--standard", "hbm4", "--policy", "MOP4CLXOR", "--interleave", "256"],
+    ),
+    (
+        "lpddr6_RoCoRaBaCh_ch1",
+        ["--standard", "lpddr6", "--policy", "RoCoRaBaCh", "--channels", "1"],
+    ),
+    (
+        "ddr5_RoRaBaCoCh_ch1",
+        ["--standard", "ddr5", "--policy", "RoRaBaCoCh", "--channels", "1"],
+    ),
+    ("lpddr6_fp16", ["--standard", "lpddr6", "--num-fmt", "fp16"]),
+]
+matrix_envs = []
+if native:
+    gen = pim_root.File("gen_pim_layout.py")
+    for name, args in matrix:
+        header = env.Command(
+            "layouts/%s.h" % name,
+            [gen],
+            "python3 -B ${SOURCES[0]} %s -o $TARGET" % " ".join(args),
+        )
+        e = layout_env(env, "m_" + name, header[0].abspath, header[0])
+        matrix_envs.append(e)
+        libs[e["LAYOUT"]] = library(e)
+        prog, _ = test_program(
+            e, "test_copy", ["test_copy.c"], [libs[e["LAYOUT"]]]
+        )
+        run_test(e, "test_copy_" + name, [prog[0]], prog)
+
+# L6: the user API on every default and matrix layout.
+if native:
+    for e in layouts + matrix_envs:
+        layout = e["LAYOUT"]
+        prog, _ = test_program(e, "test_api", ["test_api.c"], [libs[layout]])
+        run_test(e, "test_api_" + layout, [prog[0]], prog)
+
+# L7: the host reference build of the SE programs reproduces the
+# committed reference outputs (LQ13 (b), tests/gem5/pim/ref/README.md).
+if native:
+    progs_dir = env["GEM5_ROOT"].Dir("tests/test-progs")
+    ref_dir = env["GEM5_ROOT"].Dir("tests/gem5/pim/ref")
+
+    def ref_check(target, source, env):
+        prog, args_file, ref_file = (str(s) for s in source[:3])
+        args = open(args_file).read().split()
+        with open(ref_file) as f:
+            ref = f.read()
+        r = subprocess.run([prog] + args, stdout=subprocess.PIPE, text=True)
+        with open(str(target[0]), "w") as f:
+            f.write(r.stdout)
+        if r.returncode != 0 or r.stdout != ref:
+            got, want = r.stdout.splitlines(), ref.splitlines()
+            i = next(
+                (k for k, (x, y) in enumerate(zip(got, want)) if x != y),
+                min(len(got), len(want)),
+            )
+            print(
+                "FAIL %s %s: exit %d, first difference at line %d"
+                % (os.path.basename(prog), args_file, r.returncode, i + 1)
+            )
+            return 1
+        print("PASS %s" % os.path.basename(str(target[0])))
+        return 0
+
+    for prog in ("pim-gemv", "pim-eltwise"):
+        src = progs_dir.File("%s/src/%s.c" % (prog, prog.replace("-", "_")))
+        for e in layouts:
+            std = e["LAYOUT"]
+            if std not in STANDARDS:
+                continue
+            args_file = ref_dir.Dir(prog).File(std + ".args")
+            ref_file = ref_dir.Dir(prog).File(std + ".out")
+            obj = e.Object(target="test/obj/%s/%s" % (std, prog), source=src)
+            bin_ = e.Program("test/bin/%s_%s" % (prog, std), [obj, libs[std]])
+            t = e.Command(
+                "test/result/test_ref_%s_%s.log" % (prog, std),
+                [bin_[0], args_file, ref_file],
+                Action(ref_check, "TEST test_ref_%s_%s" % (prog, std)),
+            )
+            AlwaysBuild(t)

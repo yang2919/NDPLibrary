@@ -1,14 +1,18 @@
 # Using NDP Library: Generic L2 APIs and a Decoder Layer
 
+Use `--ndp-config configs/ndp-small.ini` for the command-driven PNM/PIM backend,
+`--ndp` for its default profile, or no argument for the reference backend.
+See [command backend usage](ndp-backend.md) for configuration and supported operations.
+
 This guide describes the current C++ API. Start with generic matrix/tensor operations
 and device storage, then follow a decoder layer built on those APIs. The decoder
 walkthrough matches the numbered comments in
 [decoder_block.cpp](../examples/decoder_block.cpp); it does not call the prebuilt
 `ndp::decoder_block()` function.
 
-All examples use the **CPU FunctionalBackend**. PNM/PIM choices select different
-functional execution/layout paths; they do not execute on an FPGA. Tensor storage
-is FP16. Python/PyTorch bindings are not implemented yet.
+Examples default to the **CPU FunctionalBackend** and can select the command backend
+using the options above. Both run on the CPU; neither executes on an FPGA. Tensor storage
+is FP16. An optional [PyTorch adapter](pytorch-integration.md) provides explicit Python runtime calls.
 
 ## 1. Choose the library layer
 
@@ -37,7 +41,7 @@ To build and run the existing decoder example from the repository root:
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --target decoder_block
-./build/decoder_block
+./build/decoder_block --ndp-config configs/ndp-small.ini
 ```
 
 Expected output:
@@ -126,6 +130,7 @@ result. It requires only the `ndp` target, not L3 or PreparedWeight.
 
 ```cpp
 #include "ndp/common/fp16.hpp"
+#include "ndp/l1/functional/backend.hpp"
 #include "ndp/l2/session.hpp"
 
 #include <cstring>
@@ -298,7 +303,7 @@ required runtime APIs. Replace them with model-specific loading in an applicatio
 
 ### Step 1 — Create one Session
 
-The example creates `make_functional_backend(1 << 20, 256)`: 1 MiB of device memory
+By default, the example creates `make_functional_backend(1 << 20, 256)`: 1 MiB of device memory
 and 256 bytes of separate scratchpad. Weights, activations, and buffers consume device
 memory. PNM matrix kernels use scratchpad tiles managed by the backend. The caller
 does not allocate scratchpad per operation.
@@ -504,8 +509,17 @@ error even after a successful recovery. Failed initial allocation requires a new
 - PIM currently supports matvec and bias-free M=1 linear. Dense output and test packing
   are functional-backend contracts, not verified FPGA behavior.
 - The example has no batching/padding-mask interface, model loader, or generation loop.
-  PyTorch integration remains proposed work.
+  Explicit eager PyTorch integration is available through the optional adapter.
 
 For object ownership details, see [Object abstractions](library-abstractions.md).
 For old-to-new API names and the buffer contract, see [Generic L2 migration](generic-l2.md).
-For proposed Python bindings and their limits, see [PyTorch integration](pytorch-integration.md).
+For Python bindings and their limits, see [PyTorch integration](pytorch-integration.md).
+
+### Matmul scaling before output conversion
+
+`Session::matmul(a, b, options, factor)` applies a finite scalar to the FP32
+accumulator before the FP16 result is written. The default factor is 1, preserving
+existing calls. L3 attention uses this to scale QK scores by `1/sqrt(head_dim)`
+before conversion; a separate `scale(matmul(...))` first rounds the unscaled
+result and cannot recover values that already overflowed. The scaled score still
+must fit FP16; this change does not provide FP32 intermediate Tensor storage.

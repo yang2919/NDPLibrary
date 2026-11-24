@@ -1,4 +1,5 @@
 // Verify FIFO execution, staging limits, dependency errors, and asynchronous buffer lifetimes.
+#include "ndp/l1/functional/backend.hpp"
 #include "ndp/l2/session.hpp"
 
 #include <array>

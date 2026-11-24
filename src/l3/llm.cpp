@@ -204,8 +204,8 @@ Result<Tensor> causal_attention(Session &s, const Tensor &q, const Tensor &k, co
         auto keys = take(s.gather(k, ki, {length, width}));
         auto values = take(s.gather(v, std::move(ki), {length, width}));
         auto transposed = take(s.transpose(keys));
-        auto scores = take(s.matmul(query, transposed, options));
-        auto scaled = take(s.scale(scores, 1 / std::sqrt(float(width))));
+        // Scale the FP32 accumulator before the score tensor is stored as FP16.
+        auto scaled = take(s.matmul(query, transposed, options, 1 / std::sqrt(float(width))));
         auto probabilities = take(s.softmax(scaled, -1, options));
         auto attended = take(s.matmul(probabilities, values, options));
         writes.push_back({attended, output, 0, (token * heads + head) * width, width});

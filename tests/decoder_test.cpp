@@ -1,5 +1,6 @@
 // Compare prefill and incremental mixed-engine decoding against an independent scalar reference.
 #include "../examples/toy_decoder.hpp"
+#include "ndp/l1/ndp/backend.hpp"
 #include "ndp/l3/llm.hpp"
 #include "test_support.hpp"
 
@@ -116,12 +117,28 @@ struct Block {
 } // namespace oracle
 
 struct Counts {
-  std::atomic<int> packs{0}, downloads{0};
+  std::atomic<int> packs{0}, downloads{0}, pim{0}, pnm{0};
 };
 
 class Counted : public reference::ForwardBackend {
 public:
-  explicit Counted(std::shared_ptr<Counts> c) : c_(std::move(c)) {}
+  explicit Counted(std::shared_ptr<Counts> c, bool commands) : c_(std::move(c)) {
+    if (commands) {
+      auto backend = make_ndp_backend({2, 2, 512, 64, 64, 256, 128});
+      CHECK(backend);
+      inner = std::move(backend.value());
+    }
+  }
+
+  Result<void> execute(const KernelPlan &plan, std::span<const AllocationHandle> inputs,
+                       AllocationHandle output) override {
+    if (plan.operation.engine == Engine::PIM) {
+      ++c_->pim;
+    } else {
+      ++c_->pnm;
+    }
+    return inner->execute(plan, inputs, output);
+  }
 
   Result<void> transform(AllocationHandle a, const LayoutDesc &ad, AllocationHandle b,
                          const LayoutDesc &bd) override {
@@ -138,9 +155,9 @@ private:
   std::shared_ptr<Counts> c_;
 };
 
-void decoder() {
+void decoder(bool commands) {
   auto counts = std::make_shared<Counts>();
-  auto made = Session::create(std::make_unique<Counted>(counts));
+  auto made = Session::create(std::make_unique<Counted>(counts, commands));
   CHECK(made);
   auto s = std::move(made.value());
   auto weights = example::weights(s);
@@ -196,12 +213,15 @@ void decoder() {
   }
   CHECK(s.synchronize());
   CHECK(s.memory_stats().live_bytes == baseline);
+  CHECK(counts->pim == 42);
+  CHECK(counts->pnm > 0);
   CHECK(s.close());
 }
 
 int main() {
   try {
-    decoder();
+    decoder(false);
+    decoder(true);
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
     return 1;

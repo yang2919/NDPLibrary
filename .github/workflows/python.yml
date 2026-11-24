@@ -1,0 +1,29 @@
+# Check the C++ core, optional bindings, and a production wheel on a pinned Torch version.
+name: Python adapter
+on: [push, pull_request]
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'setuptools>=68' wheel cmake
+      - run: python -m pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: C++ core without bindings
+        run: |
+          cmake -S . -B build-core -DNDP_BUILD_PYTHON=OFF
+          cmake --build build-core -j 2
+          ctest --test-dir build-core --output-on-failure
+      - name: Adapter and failure contracts
+        run: |
+          cmake -S . -B build-python -DNDP_BUILD_PYTHON=ON -DNDP_PYTHON_TESTING=ON -DPython3_EXECUTABLE="$(command -v python)"
+          cmake --build build-python -j 2
+          ctest --test-dir build-python --output-on-failure
+      - name: Installed production wheel
+        run: |
+          python -m pip wheel . --no-build-isolation --no-deps -w dist
+          python -m pip install --no-deps dist/*.whl
+          cd /tmp
+          python -m unittest discover -s "$GITHUB_WORKSPACE/tests/python" -v

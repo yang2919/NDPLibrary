@@ -1,0 +1,12 @@
+# A CPU-less tester for Processing-in-Memory (PIM) memories, built only
+# with the Ramulator 2.1 back end, so that build/RISCV and build/ALL are
+# unaffected.
+
+Import("*")
+
+if not env["CONF"].get("USE_RAMULATOR2"):
+    Return()
+
+SimObject("PimTester.py", sim_objects=["PimTester"])
+Source("pim_tester.cc")
+DebugFlag("PimTester")

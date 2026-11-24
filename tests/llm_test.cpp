@@ -1,4 +1,6 @@
 // Compare LLM primitives against independent references and validate shape and numeric edge cases.
+#include "ndp/l1/functional/backend.hpp"
+#include "ndp/l1/ndp/backend.hpp"
 #include "ndp/l3/llm.hpp"
 #include "test_support.hpp"
 
@@ -68,9 +70,47 @@ void primitives() {
   CHECK(s.close());
 }
 
+// The unscaled dot product overflows FP16 even though its scaled result is finite.
+void scaled_attention() {
+  for (bool emulate : {false, true}) {
+    auto backend = make_functional_backend(1 << 20);
+    if (emulate) {
+      auto created = make_ndp_backend();
+      CHECK(created);
+      backend = std::move(created.value());
+    }
+    auto made = Session::create(std::move(backend));
+    CHECK(made);
+    auto s = std::move(made.value());
+    auto a = reference::upload(s, {1, 128}, std::vector<float>(128, 32));
+    auto b = reference::upload(s, {128, 1}, std::vector<float>(128, 32));
+    auto plain = s.matmul(a, b);
+    CHECK(plain);
+    CHECK(std::isinf(reference::download(s, plain.value())[0]));
+    for (float factor : {0.25f, -0.25f, 0.f}) {
+      auto scaled = s.matmul(a, b, {}, factor);
+      CHECK(scaled);
+      reference::close(reference::download(s, scaled.value()), {131072 * factor}, 0, 0);
+    }
+    CHECK(!s.matmul(a, b, {}, INFINITY));
+    CHECK(!s.matmul(a, b, {}, NAN));
+    auto q = reference::upload(s, {1, 1, 128}, std::vector<float>(128, 32));
+    std::vector<float> keys(256, 31), values(256, 0);
+    std::fill_n(keys.begin(), 128, 32);
+    std::fill_n(values.begin(), 128, 1);
+    auto k = reference::upload(s, {2, 1, 128}, keys);
+    auto v = reference::upload(s, {2, 1, 128}, values);
+    auto output = causal_attention(s, q, k, v, 1);
+    CHECK(output);
+    reference::close(reference::download(s, output.value()), std::vector<float>(128, 1), 0, 0);
+    CHECK(s.close());
+  }
+}
+
 int main() {
   try {
     primitives();
+    scaled_attention();
   } catch (const std::exception &e) {
     std::cerr << e.what() << '\n';
     return 1;

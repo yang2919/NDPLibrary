@@ -8,6 +8,13 @@ Result<TensorDesc> infer_output(const OperationSpec &op) {
   if (op.engine != Engine::PNM && op.engine != Engine::PIM) {
     return Status{ErrorCode::InvalidArgument, "Invalid engine"};
   }
+  if (op.attributes.output_dtype != DType::F16 &&
+      !(op.kind == OpKind::Linear &&
+        op.attributes.output_dtype == DType::F32 && op.inputs.size() == 2))
+    return Status{ErrorCode::UnsupportedDType, "FP32 output requires bias-free partial Linear"};
+  for (const auto &input : op.inputs)
+    if (input.dtype != DType::F16)
+      return Status{ErrorCode::UnsupportedDType, "Compute operands require FP16"};
   const size_t count = op.inputs.size();
   const bool unary = op.kind == OpKind::Softmax || op.kind == OpKind::SiLU ||
                      op.kind == OpKind::Reshape || op.kind == OpKind::Gather ||
@@ -26,6 +33,9 @@ Result<TensorDesc> infer_output(const OperationSpec &op) {
   const auto &b = op.inputs[count > 1 ? 1 : 0].shape;
   TensorDesc output;
   if (op.kind == OpKind::Matmul) {
+    if (!std::isfinite(op.attributes.factor)) {
+      return Status{ErrorCode::InvalidArgument, "Matmul factor must be finite"};
+    }
     if (a.size() != 2 || b.size() != 2 || a[1] != b[0]) {
       return Status{ErrorCode::InvalidArgument, "matmul requires [M,K] x [K,N]"};
     }
@@ -98,6 +108,7 @@ Result<TensorDesc> infer_output(const OperationSpec &op) {
   } else {
     return Status{ErrorCode::UnsupportedOperation, "Unknown operation"};
   }
+  output.dtype = op.attributes.output_dtype;
   auto bytes = byte_size(output);
   if (!bytes) {
     return bytes.error();

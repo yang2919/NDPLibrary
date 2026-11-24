@@ -1,0 +1,20 @@
+# One run per line: gem5 riscv-pim.py options and the program's arguments.
+# policy empty = RoRaBaChCo (the default layout headers).
+name,memory,cpu,ab_mode,policy,args,extra
+lpddr6-o3,lpddr6,o3,baseline,,2048 1024,
+ddr5-o3,ddr5,o3,baseline,,2048 1024,
+gddr7-o3,gddr7,o3,baseline,,2048 1024,
+hbm4-o3,hbm4,o3,baseline,,2048 1024,
+lpddr6-o3-ideal,lpddr6,o3,ideal,,2048 1024,
+lpddr6-o3-aim,lpddr6,o3,aim,,2048 1024,
+lpddr6-o3-aespa,lpddr6,o3,aespa,,2048 1024,
+lpddr6-timing,lpddr6,timing,baseline,,2048 1024,
+lpddr6-o3-RoRaBaCoCh,lpddr6,o3,baseline,RoRaBaCoCh,2048 1024,
+lpddr6-o3-RoCoRaBaCh,lpddr6,o3,baseline,RoCoRaBaCh,2048 1024,
+lpddr6-o3-RoBaRaCoCh,lpddr6,o3,baseline,RoBaRaCoCh,2048 1024,
+lpddr6-o3-ChRaBaRoCo,lpddr6,o3,baseline,ChRaBaRoCo,2048 1024,
+lpddr6-o3-MOP4CLXOR,lpddr6,o3,baseline,MOP4CLXOR,2048 1024,
+lpddr6-o3-noposted,lpddr6,o3,baseline,,2048 1024,--no-posted
+ddr5-o3-noposted,ddr5,o3,baseline,,2048 1024,--no-posted
+gddr7-o3-noposted,gddr7,o3,baseline,,2048 1024,--no-posted
+hbm4-o3-noposted,hbm4,o3,baseline,,2048 1024,--no-posted

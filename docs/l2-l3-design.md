@@ -1,5 +1,9 @@
 # LLM serving을 위한 NDP Library L2/L3 설계 초안
 
+> Historical design/milestone record. The current API and L2/L3 boundary are described
+> in [Generic L2 Runtime](generic-l2.md); earlier Session KV/attention/RoPE APIs were removed.
+
+
 상태: 구현 전 제안. 실제 FPGA 사양이 확인되지 않은 항목은 capability와 backend 계약으로 격리한다.
 
 현재 단일 device 구현의 범위·객체 계약·작업 순서는 [Single-device 구현 계획](single-device-implementation-plan.md)을 따른다. 이 문서의 multi-device 및 mutable tensor 일반화는 장기 설계 방향으로 남긴다.

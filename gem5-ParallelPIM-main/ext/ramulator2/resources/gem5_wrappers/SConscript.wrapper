@@ -1,0 +1,32 @@
+import os
+
+from SCons.Script import Exit
+
+Import('*')
+
+# Replace with the path to your Ramulator2 directory.
+RAMULATOR2_HOME = '/path/to/ramulator2'
+
+ramulator2_base_header = os.path.join(
+    RAMULATOR2_HOME, 'src', 'ramulator', 'base', 'base.h')
+if not os.path.isfile(ramulator2_base_header):
+    print(f'Error: could not find ramulator/base/base.h at '
+          f'{ramulator2_base_header}')
+    Exit(1)
+
+ramulator2_library = os.path.join(RAMULATOR2_HOME, 'libramulator.so')
+if not os.path.isfile(ramulator2_library):
+    print(f'Error: could not find libramulator.so at {ramulator2_library}')
+    Exit(1)
+
+env.Append(CPPPATH=[os.path.join(RAMULATOR2_HOME, 'src')])
+env.Append(LIBS=['ramulator'])
+env.Append(LIBPATH=[RAMULATOR2_HOME])
+env.Append(RPATH=[RAMULATOR2_HOME])
+
+SimObject('Ramulator2.py', sim_objects=['Ramulator2'])
+SimObject('Ramulator2VectorPorts.py', sim_objects=['Ramulator2VectorPorts'])
+Source('ramulator2_base.cc')
+Source('ramulator2.cc')
+Source('ramulator2_vector_ports.cc')
+DebugFlag('Ramulator2')
