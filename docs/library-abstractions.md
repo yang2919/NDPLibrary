@@ -353,5 +353,4 @@ where `weight` is an L3 PreparedWeight:
 This is the reason for the object boundaries: the caller expresses model operations,
 the runtime preserves data and ordering, and the backend implements device behavior.
 
-See [generic L2 migration](generic-l2.md) for API changes, snapshot costs, and FP16
-intermediate precision limitations.
+A buffer snapshot creates an independent Tensor value. Budget for the copied range when using snapshots to compose L3 operations. FP16 intermediate tensors introduce rounding at operation boundaries.

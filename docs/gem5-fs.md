@@ -2,7 +2,7 @@
 
 This harness boots a real Linux kernel in unmodified gem5 and runs a statically
 linked C++ smoke program inside that guest. It does not yet connect the NDP library.
-The full integration sequence is in [the F0–F5 plan](gem5-integration-plan.md).
+To run the subsequent guest checks, follow [F2–F5 verification](stock-gem5-verification.md).
 
 For the F2 metadata probe, use [the F2 procedure](gem5-f2.md) with `STAGE=F2`.
 The default invocation below remains F0. The user has reported F2–F5 FS validation

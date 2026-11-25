@@ -23,11 +23,11 @@ or timing/performance claim is included.
   and repeated NDP generation after history reset.
 
 ```sh
-make -C tools/gem5/pim_kernel fp16
+make -C tools/gem5/pim_kernel profile fp16
 cmake --build build-python
 ctest --test-dir build-python --output-on-failure
 PYTHONPATH=build-python/python python examples/python/llama_tensor_parallel_model.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16 --steps 8
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16 --steps 8
 ```
 
 The checkpoint and Transformers package must be installed separately. The
@@ -167,11 +167,11 @@ is a possible contributor, not a verified explanation.
 
 ```sh
 PYTHONPATH=build-python/python python examples/python/llama_norm_precision.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16
 PYTHONPATH=build-python/python python examples/python/llama_tensor_parallel_model.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16 --devices 1 --steps 8
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16 --devices 1 --steps 8
 PYTHONPATH=build-python/python python examples/python/llama_tensor_parallel_model.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16 --devices 2 --steps 8
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16 --devices 2 --steps 8
 ```
 
 A deterministic native regression uses non-unit gamma values to distinguish

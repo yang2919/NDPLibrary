@@ -105,7 +105,7 @@ reported after attempting all stage cleanups.
 cmake --build build-python
 ctest --test-dir build-python --output-on-failure
 PYTHONPATH=build-python/python python examples/python/llama_pipeline.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 The example compares two independent generation requests with the existing

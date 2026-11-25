@@ -114,7 +114,7 @@ batching and overlapping pipeline execution are outside this implementation.
 cmake --build build-python
 ctest --test-dir build-python --output-on-failure
 PYTHONPATH=build-python/python python examples/python/llama_scheduler.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 The full-model example submits three prompts to a scheduler with two active

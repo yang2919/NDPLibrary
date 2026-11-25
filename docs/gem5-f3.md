@@ -3,7 +3,7 @@
 F2 FS validation was reported complete by the user. F3 adds an executing receiver
 and a synchronous client, while preserving the F2 metadata-only probe. Native
 validation has passed; **F3 FS verification has been reported complete by the user**. See the
-standalone [user verification procedure](gem5-f3-user-verification.md).
+standalone [user verification procedure](stock-gem5-verification.md).
 
 ## Responsibilities
 

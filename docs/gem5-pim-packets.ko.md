@@ -1,5 +1,7 @@
 # NDP–gem5 PIM 및 메모리 패킷 규격 v2
 
+이 규격은 `gem5` 백엔드의 명령 패킷에 적용됩니다. 확장 gem5의 `gem5_pim` 백엔드는 [libpim 커널 인터페이스](gem5-pim-kernel-plan.md)를 사용합니다.
+
 [English](gem5-pim-packets.md)
 
 NDP Library가 보내는 요청과 그에 대한 응답은 같은 패킷 구조를 사용합니다. 송신 측과 수신 측이 주고받을 데이터와 완료 조건을 아래에 정의합니다. 수신 측의 프로그램 구성과 명령 실행 방식은 구현팀이 선택합니다.

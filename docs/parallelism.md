@@ -168,13 +168,13 @@ output splitting preserves complete per-channel dot products.
 Build the native worker and Python adapter from the same source revision.
 
 ~~~sh
-make -C tools/gem5/pim_kernel fp16
+make -C tools/gem5/pim_kernel profile fp16
 cmake --build build-python
 ctest --test-dir build-python --output-on-failure
 PYTHONPATH=build-python/python python examples/python/llama_stages.py /path/to/SmolLM2-135M \
-    --worker build/pim-kernel-worker-fp16
+    --worker build/extended-gem5/pim-kernel-worker-fp16
 PYTHONPATH=build-python/python python examples/python/llama_tensor_parallel.py /path/to/SmolLM2-135M \
-    --worker build/pim-kernel-worker-fp16
+    --worker build/extended-gem5/pim-kernel-worker-fp16
 ~~~
 
 Regression tests cover uneven partitions, ownership and metadata rejection,
@@ -197,7 +197,7 @@ the subsequent host reduction necessarily transfers the FP32 partials.
 
 ```sh
 PYTHONPATH=build-python/python python examples/python/llama_tensor_parallel_blocks.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 The example compares four first-layer tokens with Hugging Face eager attention
@@ -345,7 +345,7 @@ Failures in final normalization or the host LM head also invalidate the stack.
 
 ```sh
 PYTHONPATH=build-python/python python examples/python/llama_tensor_parallel_model.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16 --steps 8
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16 --steps 8
 ```
 
 The example compares every layer and logits on a common token trajectory,
@@ -418,7 +418,7 @@ activation transfer.
 
 ```sh
 PYTHONPATH=build-python/python python examples/python/llama_transfer_profile.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16 --devices 3
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16 --devices 3
 ```
 
 This example loads the full model once, runs two tokens through the former
@@ -522,7 +522,7 @@ claimed from the placement feature alone.
 
 ```sh
 PYTHONPATH=build-python/python python examples/python/llama_hybrid_parallel.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 The example compares the full model on one two-device group against two
@@ -631,7 +631,7 @@ The sequential GenerationScheduler now uses this ownership contract; see
 
 ```sh
 PYTHONPATH=build-python/python python examples/python/llama_requests.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 The full-model example compares each request run alone against alternating

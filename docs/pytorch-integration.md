@@ -29,12 +29,12 @@ projections. Loading it clears sequence history. Use a separate adapter for
 each concurrently active sequence.
 
 For native gem5_pim decode, build the current FP16 worker with
-`make -C tools/gem5/pim_kernel fp16` and select it at construction:
+`make -C tools/gem5/pim_kernel profile fp16` and select it at construction:
 
 ```python
 attention = ndp.nn.DecodeSelfAttention(
     mha.eval(), max_tokens=2048, backend="gem5_pim",
-    worker="build/pim-kernel-worker-fp16",
+    worker="build/extended-gem5/pim-kernel-worker-fp16",
 )
 output = attention(token)
 ```
@@ -69,7 +69,7 @@ Convert a loaded CPU FP16 Hugging Face Llama decoder layer in evaluation mode:
 
 ```python
 block = ndp.nn.LlamaDecodeBlock(model.model.layers[0], max_tokens=128,
-                                backend="gem5_pim", worker="build/pim-kernel-worker-fp16")
+                                backend="gem5_pim", worker="build/extended-gem5/pim-kernel-worker-fp16")
 with torch.inference_mode():
     for token in hidden_states.split(1, dim=1):
         output = block(token)  # CPU FP16 [1, 1, hidden_size]
@@ -92,9 +92,9 @@ RoPE and a bias-free SwiGLU MLP.
 Using the FP16 worker build above and the pinned local SmolLM2-135M checkpoint:
 
 ```sh
-make -C tools/gem5/pim_kernel fp16
+make -C tools/gem5/pim_kernel profile fp16
 PYTHONPATH=build-python/python python examples/python/llama_block.py /path/to/SmolLM2-135M \
-    --worker build/pim-kernel-worker-fp16
+    --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 For launch capture, rebuild the decoder-capable attention ELF using the
@@ -123,7 +123,7 @@ layers and model logits are outside this verification.
 
 Select the command backend with `Session(backend="ndp")`. Pass `config` to override its default NdpSpec. See [the command backend guide](ndp-backend.md).
 
-P1–P4 of the [runtime integration plan](runtime-pytorch-plan.md) are implemented:
+The extension exposes the following runtime features:
 Python ownership/lifecycle bindings, CPU FP16 transfer, resident L2 operations, and
 an explicit Python decoder example. This is an eager, inference-only adapter, not a
 native torch device. `NdpTensor` is an opaque device handle rather than a subclass
@@ -180,21 +180,21 @@ explicitly disable it. Tests for that backend are skipped for production wheels.
 
 ## Resident libpim projections from external PyTorch
 
-Build the FP16 native reference worker with `make -C tools/gem5/pim_kernel fp16`. Use the Python adapter built from the same checkout. On POSIX, `worker` is the path to the executable; each Session starts one process and closes it on exit. This backend supports PIM Matvec and single-token, bias-free Linear.
+Build the FP16 native reference worker with `make -C tools/gem5/pim_kernel profile fp16`. Use the Python adapter built from the same checkout. On POSIX, `worker` is the path to the executable; each Session starts one process and closes it on exit. This backend supports PIM Matvec and single-token, bias-free Linear.
 
 ```python
 import torch
 import ndp
 
 source = torch.nn.Linear(3, 2, bias=False, dtype=torch.float16).eval()
-with ndp.Session(backend="gem5_pim", worker="./build/pim-kernel-worker-fp16") as s:
+with ndp.Session(backend="gem5_pim", worker="./build/extended-gem5/pim-kernel-worker-fp16") as s:
     projection = ndp.nn.NdpLinear.from_torch(source, s, ndp.Engine.PIM)
     for x in (torch.ones(1, 3).half(), torch.zeros(1, 3).half()):
         y = projection.forward_ndp(s.upload(x))
         print(s.download(y))
 ```
 
-To chain compatible layers, pass `y` directly to the next projection's `forward_ndp`. Weight preparation occurs during module construction. The worker uses FP16 operands, FP32 accumulation and a rounded FP16 output at each operation boundary. To include the native worker integration cases in CTest, configure the Python build with `-DNDP_GEM5_PIM_WORKER="$PWD/build/pim-kernel-worker-fp16"`.
+To chain compatible layers, pass `y` directly to the next projection's `forward_ndp`. Weight preparation occurs during module construction. The worker uses FP16 operands, FP32 accumulation and a rounded FP16 output at each operation boundary. To include the native worker integration cases in CTest, configure the Python build with `-DNDP_GEM5_PIM_WORKER="$PWD/build/extended-gem5/pim-kernel-worker-fp16"`.
 
 ## Session and transfer boundaries
 
@@ -357,7 +357,7 @@ With Transformers installed alongside the extension, run the following from the 
 
 ```sh
 PYTHONPATH=build-python/python python3 examples/python/llama_decode.py /path/to/local/llama \
-    --worker "$PWD/build/pim-kernel-worker-fp16" --tokens 1 2 3 4
+    --worker "$PWD/build/extended-gem5/pim-kernel-worker-fp16" --tokens 1 2 3 4
 ```
 
 Omit --worker to use the functional backend. The example compares both the projection outputs and the full vocabulary logits with an independent CPU run on the same tokens, reports maximum absolute error, and fails if torch.testing.assert_close exceeds atol=0.02 and rtol=0.02. These thresholds apply to this example; check the errors for each checkpoint before using it in serving.
@@ -381,7 +381,7 @@ From the repository root, set CHECKPOINT to a local copy of the pinned config.js
 export PYTHONPATH="$PWD/build-python/python${PYTHONPATH:+:$PYTHONPATH}"
 python3 examples/python/llama_decode.py "$CHECKPOINT" --tokens 504 3575 282 4649 314 7042 30
 python3 examples/python/llama_decode.py "$CHECKPOINT" --tokens 504 3575 282 4649 314 7042 30 \
-    --worker "$PWD/build/pim-kernel-worker-fp16"
+    --worker "$PWD/build/extended-gem5/pim-kernel-worker-fp16"
 ```
 
 ### First-block attention projections
@@ -435,7 +435,7 @@ Run the two commands below with tokenizer.json from the same pinned revision alo
 ```sh
 python3 examples/python/llama_decode.py "$CHECKPOINT" --verify-greedy --max-new-tokens 24
 python3 examples/python/llama_decode.py "$CHECKPOINT" --verify-greedy --max-new-tokens 24 \
-    --worker "$PWD/build/pim-kernel-worker-fp16"
+    --worker "$PWD/build/extended-gem5/pim-kernel-worker-fp16"
 ```
 
 The acceptance criterion is identical generated token IDs and stopping position. The command prints both trajectories and the maximum absolute logits difference across decisions with identical preceding tokens. A first mismatch triggers fresh-cache replay through that decision, reports both top-two candidates and margins, and causes the verification to fail after all prompts have run. The existing teacher-forced numerical tolerance is checked independently by the block comparison.
@@ -458,7 +458,7 @@ For the pinned SmolLM2 checkpoint, append `--reuse-qkv` to the routing command:
 
 ```sh
 python3 examples/python/llama_decode.py "$CHECKPOINT" --verify-routing --reuse-qkv \
-    --tokens 504 3575 282 4649 314 7042 30 --worker "$PWD/build/pim-kernel-worker-fp16"
+    --tokens 504 3575 282 4649 314 7042 30 --worker "$PWD/build/extended-gem5/pim-kernel-worker-fp16"
 ```
 
 Omit --worker for the functional backend. The example uses the eager Llama attention implementation for Transformers 4.57.6. It compares the independent and shared-input paths in the same Session with fresh caches and the same prepared weights. Both backends measured five activation uploads, seven PIM projections and seven downloads for each cached token and for a fresh one-token prompt. Five-token prefill measured zero for all three counts. All 21 single-token projection outputs and all four logits tensors matched the independent path exactly. The profiler counts ndp::pim_projection around each individual GEMV, including the three inside ndp::qkv_pim. The same optional adapter can be selected with --verify-greedy --reuse-qkv.
@@ -505,7 +505,7 @@ To compare the first two SmolLM2 layers on one native worker and on two workers:
 
 ```sh
 PYTHONPATH=build-python/python python examples/python/llama_stages.py /path/to/SmolLM2-135M \
-    --worker build/pim-kernel-worker-fp16
+    --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 The verifier compares every output element for four consecutive tokens
@@ -549,7 +549,7 @@ accepts the partitioned representation, use the local shards directly.
 To verify a real checkpoint with two native workers:
 ```sh
 PYTHONPATH=build-python/python python examples/python/llama_tensor_parallel.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 This example uses the first layer's gate projection and four real gate inputs
@@ -724,3 +724,25 @@ receive [1,T,vocab_size] logits. For automatic prompt chunking, pass
 Multi-token projections use PNM GEMM; subsequent one-token decode uses PIM GEMV.
 The default chunk size remains 1. See [prefill](prefill.md) for cache ordering,
 FP32 partial outputs and native-worker limitations.
+
+## Dispatcher contract and graph capture
+
+
+The CPU dispatch kernels for `ndp::linear_pim` and `ndp::qkv_pim` take CPU FP16 tensors and explicit `LinearPackedParams` objects. Each packed object holds its Session and prepared weight. Fake execution reads the logical input and output widths. A real launch checks Session lifetime and thread ownership. Q/K/V requires three weights from the same Session and returns separate CPU tensors.
+
+The module serializes the CPU weight in its state dictionary and rebuilds the packed representation after checkpoint loading. Direct edits require refresh before execution. A backend failure propagates to the caller.
+
+### Verified dispatcher behavior
+
+U1–U4 passed their native acceptance checks. The functional and native libpim backends passed the two-step tiny Llama checkpoint comparison.
+
+U3 passed all four torch.library.opcheck tests on PyTorch 2.9.1: schema, autograd registration, FakeTensor and dynamic AOT dispatch. Packed handles compare by native identity and raise TypeError when probed for sequence length. The fake kernel uses immutable shape metadata, including after the runtime closes.
+
+On macOS arm64 with Python 3.11.18 and PyTorch 2.9.1, torch.compile(fullgraph=True, backend="eager") captured the fixed-shape linear_pim operator and matched eager execution for two inputs on both the functional and native libpim backends. Torch warns during capture that it retains the original session-bound handle when deepcopy is unavailable. Coverage applies to operator graph capture; whole-model compilation and Inductor code generation require separate validation.
+
+Run the regression with the same Python interpreter used to build the extension:
+
+```sh
+PYTHONPATH=build-python/python NDP_GEM5_PIM_WORKER="$PWD/build/extended-gem5/pim-kernel-worker-fp16" \
+    python -m unittest discover -s tests/python -p test_dispatch.py -v
+```

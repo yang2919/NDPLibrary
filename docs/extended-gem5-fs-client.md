@@ -51,45 +51,16 @@ after the close reply and print NDP_FS_CLEANUP_ATOMIC. All client operations,
 including the dependent GEMVs, execute on Timing. Terminal A checks finalization, guest exit and
 the controller trace before reporting NDP_FS_EXTERNAL_PASS.
 
-## Repeat chain on the Mac and retain both verdicts
+## Save both terminal verdicts
 
-In terminal A, from the project root:
-
-```sh
-PORT=45242 STAGE=FSSTREAM FS_CASE=chain ./tools/gem5/pim_kernel/run.sh
-```
-
-After this run prints `NDP_FS_HOST_READY port=45242 (host loopback)`, run
-the following in terminal B from the same root. Use the absolute directory
-printed after `Results:` in A for RUN_DIR.
+Use the absolute directory printed after `Results:` in terminal A. For a custom
+port, set `PORT` in A and pass the same number with `--port` in B. For example,
+with a GEMV run listening on port 45242, capture the client output in B:
 
 ```sh
 RUN_DIR="/absolute/path/printed/by/terminal/A"
-(set -o pipefail; python3 tools/gem5/pim_kernel/verify_fs_remote.py --case chain --port 45242 2>&1 | tee "$RUN_DIR/client.log")
+set -o pipefail
+PYTHONPATH="$PWD/build-python/python" python3 tools/gem5/pim_kernel/verify_remote.py --label NDP_FS --port 45242 2>&1 | tee "$RUN_DIR/client.log"
 ```
 
-Expect `NDP_FS_CLIENT_PASS chain` in client.log. Leave A running through
-`NDP_FS_CLEANUP_ATOMIC` until it exits. Its result.txt must contain
-`NDP_FS_EXTERNAL_PASS case=chain`. Together these establish the numerical
-checks (11 and 2), four completed GEMVs, guest exit and controller completions
-for the same run.
-
-## Repeat standalone GEMV on the Mac
-
-Start terminal A from the project root:
-
-```sh
-PORT=45242 STAGE=FSSTREAM FS_CASE=gemv ./tools/gem5/pim_kernel/run.sh
-```
-
-After this run reports READY on port 45242, run the following from the same
-project root in terminal B. The runner writes latest-run.txt at startup. Use
-this shortcut when this is the most recently started run.
-
-```sh
-RUN_DIR=$(cat build/extended-gem5/latest-run.txt)
-(set -o pipefail; PYTHONPATH="$PWD/build-python/python" python3 tools/gem5/pim_kernel/verify_remote.py --label NDP_FS --port 45242 2>&1 | tee "$RUN_DIR/client.log")
-```
-
-Require outputs [6, 1] and [-1, -4] and NDP_FS_CLIENT_PASS in client.log,
-then NDP_FS_EXTERNAL_PASS case=gemv in result.txt after guest cleanup.
+Pair the client output with the final verdict in that directory's `result.txt`.

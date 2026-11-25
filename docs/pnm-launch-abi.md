@@ -170,7 +170,7 @@ worker, N3 GEMV ELF and `ndp_pnm_test_worker`, run:
 import torch
 import ndp
 
-with ndp.Session(backend="gem5_pim", worker="build/pim-kernel-worker-fp16",
+with ndp.Session(backend="gem5_pim", worker="build/extended-gem5/pim-kernel-worker-fp16",
                  capture_worker="build-python/ndp_pnm_test_worker",
                  gemv_elf="build/pnm/pim_gemv.elf") as session:
     layer = torch.nn.Linear(3, 2, bias=False, dtype=torch.float16).eval()
@@ -195,7 +195,7 @@ To include this case in the existing Python-enabled CTest build:
 
 ```sh
 cmake -S . -B build-python \
-  -DNDP_GEM5_PIM_WORKER="$PWD/build/pim-kernel-worker-fp16" \
+  -DNDP_GEM5_PIM_WORKER="$PWD/build/extended-gem5/pim-kernel-worker-fp16" \
   -DNDP_PNM_GEMV_ELF="$PWD/build/pnm/pim_gemv.elf"
 cmake --build build-python
 ctest --test-dir build-python -R python_contracts --output-on-failure
@@ -234,10 +234,10 @@ handles after the opcode. These operations use worker-local numerical staging.
 Rebuild the FP16 reference worker before using the mixed path.
 
 ```sh
-make -C tools/gem5/pim_kernel fp16
+make -C tools/gem5/pim_kernel profile fp16
 make -C tools/gem5/pnm gemv pointwise test-pointwise
 cmake -S . -B build-python \
-  -DNDP_GEM5_PIM_WORKER="$PWD/build/pim-kernel-worker-fp16" \
+  -DNDP_GEM5_PIM_WORKER="$PWD/build/extended-gem5/pim-kernel-worker-fp16" \
   -DNDP_PNM_GEMV_ELF="$PWD/build/pnm/pim_gemv.elf" \
   -DNDP_PNM_POINTWISE_ELF="$PWD/build/pnm/pointwise.elf"
 cmake --build build-python

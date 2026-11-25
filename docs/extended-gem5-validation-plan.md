@@ -1,91 +1,27 @@
-# Extended gem5 PIM integration review and validation plan
+# Extended gem5 validation record
 
-Status: the initial review was static only. V0 native build/profile integration
-and focused native checks were subsequently completed on 2026-11-17; see
-[V0 results and commands](extended-gem5-v0.md). RISC-V worker and smoke ELF builds
-and static inspection subsequently passed; [target verification](extended-gem5-smoke-verification.md)
-is prepared. Subsequent user-run simulator checkpoints are recorded below.
-Existing native and stock-FS results are not evidence
-that this extended simulator executes the NDP kernels correctly.
+## Verified scope
 
-Active implementation and validation target gem5. Deferred board integration
-requirements are recorded in the [VHK158 handoff](vhk158-integration-requirements.md).
+The following simulator results were reported from user runs with the project FP16 profile. The worker runs on the simulated RISC-V CPU and calls libpim for PIM GEMV.
 
-## User verification checkpoints
+| Environment | Coverage | Evidence |
+|---|---|---|
+| RISC-V FS smoke | Two GEMVs and orderly guest exit | 32 WrGb, 32 AbMac, 4 RdReg completions |
+| SE Atomic and Timing | Boundary shapes and session lifecycle | 8 shapes, 24 launches in boundary tests. Lifecycle covers 11 errors and 4 successful launches. |
+| SE Timing | Resident chains, decoder operations and KV state | 18 chained GEMVs with zero intermediate downloads. Decoder tests passed 11 operation checks and 33 state checks over 7 tokens. |
+| External client, SE Atomic and Timing | Single-device decoder, interleaved requests, two-device linear and decoder, request state and layer transfer | Single-device decoder matched the functional logits. Multi-device tests used two independent simulator endpoints. |
+| External client, FS Timing | GEMV, dependent GEMVs, disconnect before dispatch, lost reply and decoder | Paired client and guest checks recorded below |
+| Qwen3 SE Timing | One synthetic decoder layer, one token, batch 1, context 16 | Qwen3-32B dense took 106,903,400,589 ticks. Qwen3-30B-A3B took 27,628,120,224 ticks. |
 
-- FS smoke: user reported exact replies, guest exit and controller completions
-  (WrGb 32, AbMac 32, RdReg 4).
-- SE Atomic boundary: user reported 8 cases / 24 GEMVs passing, with WrGb 15,936,
-  AbMac 15,936 and RdReg 3,108 accesses. This is not Timing acceptance.
-- Lifecycle/error recovery: native suite passes 11 expected rejections and four
-  successful GEMVs in one session. The user reported SE Atomic acceptance
-  (WrGb 64, AbMac 64, RdReg 8), followed by Timing acceptance.
-- The user reported `NDP_PIM_SE_TIMING_PASS suites=boundary,lifecycle`.
-  Both fixture suites now have Timing acceptance. External-client SE integration
-  passed Atomic and Timing as reported by the user; see
-  [the client procedure](gem5-se-external-client.md). No later gate is implicitly
-  accepted by these results.
+| FS case | Requests / completed GEMVs | Evidence |
+|---|---|---|
+| gemv | 22 / 2 | `run-FSSTREAM-3lWGRvQZ`, outputs [6, 1] and [-1, -4] |
+| chain | 24 / 4 | `run-FSSTREAM-w47xBUSO`, outputs 11 and 2 |
+| partial | 6 / 0 | 12 of 13 body bytes received, zero completed AbMac operations |
+| lost | 7 / 1 | `run-FSSTREAM-nh8QFgai`, one GEMV completed before disconnect |
+| decoder | 1178 / 35 | `run-FSSTREAM-MX0xnOgS`, 560 WrGb, 560 AbMac, 140 RdReg completions |
 
-Current arithmetic gate: the user reported chain SE Timing acceptance (18 GEMVs,
-WrGb 5,568 / AbMac 5,568 / RdReg 2,594). A new `decoder` fixture passed 11 native
-checks for worker-CPU arithmetic plus a final PIM GEMV. The user reported its SE Timing
-acceptance (WrGb 16, AbMac 16, RdReg 1); see the current user-verification manual. This does not
-complete the separate-PNM execution or full-decoder/KV gates.
-
-The next `decoder_state` fixture passed native checks for a tiny one-head block:
-prefill/decode, tokenwise execution and cache reset (3 schedules, 7 tokens,
-33 exact result checks). The user reported SE Timing acceptance with WrGb 688,
-AbMac 688 and RdReg 86 completions. This is worker-protocol graph
-validation, not production PyTorch adapter or separate-PNM acceptance.
-
-Production PyTorch adapter: a tiny one-layer, single-device GQA model passed
-native TCP relay tests (prefill/decode, tokenwise comparison, capacity rejection
-and reset; seven target token evaluations). The user reported both SE Atomic
-and Timing acceptance in `verify_decoder_remote.py`, with zero logit error.
-
-Request isolation: `verify_decoder_remote.py --suite isolation` passed native TCP
-validation (two live requests sharing one model/session, 15 successful token
-evaluations, seven zero-error comparisons). It checks interleaving, capacity
-rejection, reset and close against isolated request baselines. The user confirmed SE Atomic and Timing acceptance.
-
-Two-device Linear passed with two native workers. The user also confirmed SE
-Atomic and Timing acceptance with two independent simulator endpoints for output
-sharding and host reduction of FP32 partials. See [the client procedure](gem5-se-external-client.md).
-
-Two-device decoder, request state and layer transfer passed on two native workers.
-The user confirmed that all three checks also passed in SE Atomic and Timing
-with two independent gem5 instances. See [the three checks](gem5-se-external-client.md).
-
-Extended FS external client: the guest ELF passed cross-build and static inspection.
-Native mailbox tests passed for dependent GEMVs and both disconnect cases.
-All five external FS scenarios passed: gemv, chain, partial, lost and decoder.
-In standalone GEMV run `run-FSSTREAM-3lWGRvQZ`, the client reported [6, 1]
-and [-1, -4] and printed `NDP_FS_CLIENT_PASS`. The worker closed after 22
-requests and two GEMVs. The guest exited with code 0 and the runner printed
-`NDP_FS_EXTERNAL_PASS case=gemv` with WrGb 32, AbMac 32 and RdReg 4.
-
-FS chain passed in run `run-FSSTREAM-w47xBUSO`. The saved client verdict
-covers final values 11 and 2. The worker closed after 24 requests and four
-GEMVs, the guest exited with code 0, and the runner reported
-`NDP_FS_EXTERNAL_PASS case=chain` with WrGb 64, AbMac 64 and RdReg 6.
-
-The user confirmed FS partial-frame disconnect acceptance. The relay received
-12 of 13 GEMV body bytes. The worker completed six setup requests and zero GEMVs.
-The Timing trace had zero completed AbMac operations, the guest exited with
-code 0, and the runner printed `NDP_FS_EXTERNAL_PASS case=partial`. The lost-reply case also passed in run `run-FSSTREAM-nh8QFgai`: seven requests,
-one completed GEMV, Timing completions WrGb 16 / AbMac 16 / RdReg 2, guest exit
-code 0 and `NDP_FS_EXTERNAL_PASS case=lost`.
-
-The user confirmed completion of the external single-device FS decoder check.
-Run `run-FSSTREAM-MX0xnOgS` closed after 1,178 requests and 35 GEMVs, with
-560 WrGb, 560 AbMac and 140 RdReg completions, guest exit code 0 and
-`NDP_FS_EXTERNAL_PASS case=decoder`. The separate native TCP check had zero
-maximum absolute error over seven target token evaluations.
-See the [FS client procedure](extended-gem5-fs-client.md).
-
-The [Qwen3 single-layer timing procedure](qwen3-layer-timing.md) runs the dense
-and MoE workload with synthetic data in SE. Both user Timing runs completed at batch 1 and context 16. The dense layer took
-106,903,400,589 ticks and the MoE layer took 27,628,120,224 ticks.
+Reproduce the [build/profile check](extended-gem5-v0.md), [simulator fixtures](extended-gem5-smoke-verification.md), [SE client runs](gem5-se-external-client.md), [FS client runs](extended-gem5-fs-client.md) or [Qwen3 timing measurement](qwen3-layer-timing.md).
 
 ## Reviewed delivery
 
@@ -135,7 +71,7 @@ supplier evidence, but would not validate our decoder, worker or PNM launch ABI.
 
 | Area | Current NDP integration | New delivery and required action |
 |---|---|---|
-| Build location | Worker Makefile uses `PIM_ROOT/util/pim` | Library is `PIM_ROOT/libpim`. Adapt build paths and target instructions before execution. Do not silently replace the old reference baseline. |
+| Build location | Worker Makefile uses `PIM_ROOT/libpim` | Build the native reference archive and RISC-V worker against the same delivered library and generated layout. |
 | Geometry | Old LPDDR6 header has 8 channels | New default has 16 channels, 16 banks per channel, 2 KiB rows, 32 GiB PIM capacity. Regenerate artifacts and references; old hard-coded physical addresses and instruction counts cannot be reused unchanged. |
 | Number format | NDP tensors use FP16; reductions may retain FP32 partials | Supplier defaults to BF16 operands / FP32 accumulators. Generate an explicit FP16/FP32 header and use the same profile in the archive, worker and simulator. |
 | Mapper | Old fixtures include profile-specific packed addresses | New default is `RoRaBaChCo`, 2 KiB channel interleave. Use the generated header and `pim_addr.h`; keep physical packing in libpim/device adapter, not L2. |
@@ -158,51 +94,13 @@ This is a profile-specific offset map, not a universal host physical address map
 Adding the selected SE/FS window base gives the corresponding physical address
 for Way 1. Way 2 additionally requires correct page-backed buffer placement.
 
-## Previously planned checks that remain open on the real target
+## Remaining target validation
 
-| Existing plan | Existing evidence | Remaining target acceptance |
-|---|---|---|
-| K0–K3 supplier/native worker, C++ and external Python | Prior native reference and protocol checks | Repeat essential cases with the new profile and actual instruction-emitting RISC-V binary. |
-| K4 FS worker | User reported stock x86 FS acceptance | Extended RISC-V FS worker, custom instruction/controller evidence, profile-matched outputs and clean exit. |
-| K5 decoder kernel coverage | Native GEMV, dense arithmetic, attention and FP32 partial support | Verify actual target support and execution location of every operation used by the decoder. Reject unsupported routes explicitly. |
-| N0–N1 program ABI and capture | Launch contract and native/capture checks | Agree target map, loader, feature negotiation, start/return/trap and quiescence semantics. |
-| N2 vector add | Freestanding fixture/native checks | Execute ELF on the separate PNM core, verify registers, output guards and completion. |
-| N3 PNM-issued GEMV | Native reference and repeated-launch fixture | PNM-PC/issuer evidence, custom instruction and controller activity, correct results for two inputs with resident weights. |
-| N4 mixed MLP | Native mixed PIM/PNM chain | PIM gate/up -> PNM SiLU/multiply -> PIM down, layout compatibility and cross-engine visibility without host intermediate round trips. |
-| Attention, KV and prefill | Native decoder/cache and chunked-prefill checks | Actual target KV append/read, RoPE, causal attention, PNM GEMM for multi-row input and PIM GEMV for one row. |
-| TP, layer placement, requests and pipeline | Native host reduction, isolation and overlap checks | Actual device isolation, FP32 partial transfer/reduction, request-local KV, and simulated-stage overlap. |
+- Separate PNM core execution needs an agreed address map, ELF loader and start/return/trap interface. Validate vector add (N2), PNM-issued GEMV (N3) and the mixed PIM/PNM MLP (N4) with issuer-PC evidence and memory visibility checks. See the [launch ABI](pnm-launch-abi.md).
+- Shared-system tensor and pipeline parallel timing needs disjoint device/controller ownership and a modeled interconnect. Independent SE instances already cover host orchestration and numerical checks.
+- The Qwen3 measurement covers the attention and FFN regions of one layer. Full-model serving latency and checkpoint accuracy require separate experiments.
 
-See [kernel plan](gem5-pim-kernel-plan.md), [PNM ABI](pnm-launch-abi.md),
-[parallelism](parallelism.md), [model validation](tensor-parallel-model-validation.md),
-[prefill](prefill.md), [request scheduling](request-scheduling.md) and
-[pipeline execution](pipeline-execution.md). Historical commands that reference
-`util/pim` must be adapted; they are not ready-to-run commands for this delivery.
-
-## Recommended validation sequence
-
-Each gate requires saved evidence before proceeding. Native preparation is library
-work; the user/gem5 team runs FS validation, as previously agreed. SE validation
-is a small diagnostic step before FS, not a replacement for FS acceptance.
-
-| Gate | Work and inputs | Acceptance and evidence |
-|---|---|---|
-| V0: profile and build adaptation | Pin sources/toolchain; adapt `libpim` path; generate one LPDDR6 FP16/FP32 profile; build matching native reference and RISC-V worker; audit ISA requirements and target feature flags. | Manifest includes source/header/archive/ELF hashes, geometry, mapper, numeric formats, VLEN, CPU/memory/cache configuration. No reference-backend macro in the target executable. Header/archive layout guard and simulator profile agree. |
-| V1: supplier SE smoke | Run a small supplied GEMV with the supplier default first, then a matched FP16 case. Start with one core and a bounded instruction/tick budget. | Correct exit and outputs; custom PIM instructions and nonzero corresponding controller activity. Failure here blocks NDP worker debugging. |
-| V2: NDP worker SE fixture | Adapt/reuse `tools/gem5/pim_kernel/target_fixture.py`: one 2x3 weight, two inputs, release and close; then boundary cases below. | Logical results `[6,1]` and `[-1,-4]`; exact binary replies for this exactly representable fixture; weights survive both launches. Capture MAC activity for each launch and verify no reference fallback. |
-| V3: RISC-V FS memory and completion | Boot a suitable kernel; use Way 1 first and reserved PIM window, root `/dev/mem` access, correct `PIM_MODE=fs`, working cache maintenance. Repeat V2 and dirty-cache/reuse cases on a timing CPU. | Correct guest exit/replies, visible results after completion, no stale cache values or overlapping allocation. Save kernel/config, console, request/reply files, trace and controller statistics. |
-| V4: external host session | Connect external Python -> L1 -> guest worker over the chosen bridge; preserve the binary stream and keep diagnostics separate. Exercise partial frames, two launches, release, close and disconnect. | Same results as V3; one persistent weight; no duplicate execution on transport failure; uncertain operations are not automatically retried or their buffers prematurely reused. |
-| V5: decoder operation coverage | Tiny deterministic block; per-operation outputs, KV growth and reset; one-token decode and multi-token prefill. Include FP32 partial output and its transfer. | Every operation has a declared execution location. Compare intermediate tensors, not only logits. PNM-labeled CPU reference results remain labeled as such until the separate-core track passes. |
-| V6: separate PNM execution | Resolve topology/loader prerequisite, then N2 -> N3 -> N4 and attention/GEMM kernels. Regenerate fixtures for the agreed profile. | ELF load/start/return/trap, guards, repeated launches, PNM-issued PIM traces and cross-engine visibility. No success acknowledgment before required writes and PIM work are complete. |
-| V7: multi-device and serving | Two small disjoint devices first; TP partial reduction, stage transfer, two interleaved requests, cancellation and chunked prefill. Add pipeline overlap last. | Results match isolated runs; request/device data cannot alias; FP32 reduction stays on the external host; real controller ownership and simulated overlap are recorded. Multiple sockets alone do not pass this gate. |
-| V8: representative model and timing | Small layer subset, then bounded full-model cases only after correctness gates. Freeze CPU/cache/controller settings and use a defined ROI. | Numerical report and execution placement are acceptable; report simulated ticks separately from wall time and network/boot/loading costs. No speedup claim from native threads or Atomic results. |
-
-V0–V5 can advance on the provided Linux/SE CPU path, subject to integration work.
-V6 is a separate architectural gate: successful Linux worker execution does not
-waive it. V7 may first test isolated simulator instances for functionality, but
-shared-system performance requires an explicit multi-device topology and timing
-model. These are different experiments and must be labeled separately.
-
-### Small correctness matrix
+## Correctness fixtures
 
 Use the selected profile to derive dimensions. Let `L` be the number of matrix
 output rows placed across all banks in a row slice, and `T` the operand elements

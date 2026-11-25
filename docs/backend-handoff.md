@@ -5,10 +5,9 @@ path. It is an emulator, not a hardware adapter. Its semantic command boundary c
 be reused for future transport work; register encodings and coherence still need
 hardware-specific validation.
 
-The earlier simulator exclusion has been superseded for stock gem5 by the
-[F0–F5 plan](gem5-integration-plan.md). The assistant implements and tests natively;
-the user owns FS execution and validation. F1's private transport and codec are
-documented [here](command-transport.md). This is not hardware validation.
+The stock gem5 receiver uses the [command codec](command-transport.md).
+The extended gem5 worker uses the [libpim kernel interface](gem5-pim-kernel-plan.md).
+See the [backend verification record](extended-gem5-validation-plan.md) for target coverage.
 
 ## Required contracts
 

@@ -3,7 +3,7 @@
 F3 FS verification has been reported complete by the user. F4 connects the
 existing L2 Session to the persistent software emulator through a new L1
 transport. The user has reported F4 FS verification complete. FS reruns remain user-operated; see
-[the separate F4 verification procedure](gem5-f4-user-verification.md).
+[the separate F4 verification procedure](stock-gem5-verification.md).
 
 ## Execution path and ownership
 

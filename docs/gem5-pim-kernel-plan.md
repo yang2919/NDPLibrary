@@ -70,17 +70,6 @@ Keep the existing packet emulator and its CENT tests as an independent backend. 
 | K4 · FS handoff | Package the same kernel ELF and fixture into the RISC-V guest; document deployment, invocation, output retrieval, permissions for Way 1 /dev/mem and access to the reserved PIM region. Team/user executes FS. | Confirm workload execution beyond kernel boot, numerical match, and device-side PIM request counts or traces. Separate simulation startup, compilation, copies and kernel ROI when reporting timing. |
 | K5 · Extend coverage | Add elementwise Add/Mul only after defining paired tensor allocation and the NUM_REGS=1 constraint. Inventory decoder operations and assign an explicit execution engine to each. | Compare each new kernel to libpim_ref. Full decoder acceptance requires an agreed path for unsupported operations, including normalization, softmax and PNM GEMM. |
 
-For K0 in the complete fork, the example below uses the supplied default layout. Use an isolated build directory or serialize custom layout builds because the example reuses the name libpim_custom.a. [Build recipe](../pim-isa-library-2026-11-10/util/pim/README.md) · [Reference input](../pim-isa-library-2026-11-10/tests/gem5/pim/ref/pim-gemv/lpddr6.args) · [Reference output](../pim-isa-library-2026-11-10/tests/gem5/pim/ref/pim-gemv/lpddr6.out)
-
-```sh
-make -C tests/test-progs/pim-gemv/src TARGET=host PIM_STD=lpddr6
-tests/test-progs/pim-gemv/bin/host/lpddr6/pim-gemv 131 1031
-make -C tests/test-progs/pim-gemv/src TARGET=riscv PIM_STD=lpddr6
-build/RISCV_RAMULATOR2/gem5.opt configs/example/gem5_library/riscv-pim.py \
-  --mode se --memory lpddr6 \
-  --binary tests/test-progs/pim-gemv/bin/riscv/lpddr6/pim-gemv --args 131 1031
-```
-
 ## Decisions needed from the gem5 team
 
 For target runs, confirm the full fork/build environment, matching FP16 layout and device counters. For FS, agree on worker ELF deployment, image permissions and the connection from the external host to the guest. The external client and resident-worker split is settled. Native K1–K3 can proceed before the FS transport is selected.
@@ -91,7 +80,7 @@ Run from the repository root with SCons, a native C/C++20 toolchain and Python 3
 
 ```sh
 make -C tools/gem5/pim_kernel
-python3 tools/gem5/pim_kernel/client.py build/pim-kernel-worker
+python3 tools/gem5/pim_kernel/client.py build/extended-gem5/pim-kernel-worker
 ```
 
 The Python process owns the worker subprocess and exchanges length-prefixed messages over its stdin/stdout. Each four-byte little-endian length covers the following body. Version 1 starts with H + version byte; the reply identifies the LPDDR6/BF16/FP32 profile. C creates a role-specific tensor, U uploads FP32 values, G launches GEMV using output/weight/vector handles, D downloads FP32 values, R releases a handle and Q closes the session. Replies start with status byte 0 (success) or 1 (diagnostic text). EOF also releases all tensors. This native transport keeps the FS deployment choice open.
@@ -101,21 +90,19 @@ The example uploads one 2×3 weight and reuses all three handles for two launche
 ## K1 native FP16 acceptance
 
 ```sh
-make -C tools/gem5/pim_kernel fp16
-python3 tools/gem5/pim_kernel/test_fp16.py build/pim-kernel-worker-fp16
+make -C tools/gem5/pim_kernel profile fp16
+python3 tools/gem5/pim_kernel/test_fp16.py build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 The FP16 worker uses protocol version 2 and little-endian binary16 upload/download payloads. libpim widens the interface to host float arrays and accumulates in FP32. On a successful GEMV the worker copies the FP32 SB output through a local float array into a GB-vector tensor with FP16 storage. Download and a subsequent GEMV both consume this rounded representation. It stays in the worker process; the conversion incurs local data movement and the GB vector has host-side backing in libpim. The test covers two matrix shapes, tie-to-even, two half-ULPs accumulating before narrowing, FP16 values distinguishable from BF16, repeated launches and profile rejection.
-
-The supplier layout generator imports Ramulator Python modules absent from this environment. Native acceptance uses a header derived from the supplied LPDDR6 layout with identical address geometry, FP16 operands of the same width and a separate link guard. For gem5 target acceptance, generate the full matching header in the complete fork. The K2 integration below uses this native reference layout.
 
 ## K2 native C++ Session acceptance
 
 Build the optional worker and register the integration test with its absolute path:
 
 ```sh
-make -C tools/gem5/pim_kernel fp16
-cmake -S . -B build -DNDP_GEM5_PIM_WORKER="$PWD/build/pim-kernel-worker-fp16"
+make -C tools/gem5/pim_kernel profile fp16
+cmake -S . -B build -DNDP_GEM5_PIM_WORKER="$PWD/build/extended-gem5/pim-kernel-worker-fp16"
 cmake --build build --target ndp_gem5_pim_tests
 ctest --test-dir build -R '^gem5_pim_session$' --output-on-failure
 ```
@@ -132,34 +119,8 @@ Select `backend="gem5_pim"` and pass the FP16 worker executable via the keyword 
 
 External PyTorch can open a blocking TCP connection and pass its descriptor as `worker_fd`. The stock x86 FS configuration bridges that session to one guest reference worker through m5 file operations. Run the [two-terminal acceptance procedure](gem5-k4-stock-fs-user-verification.md) to verify both GEMV results and guest shutdown. Execution of RISC-V PIM instructions and device timing still require the target fork.
 
-## K4 target handoff after stock FS acceptance
+## Extended gem5 worker
 
-For the new `gem5-ParallelPIM-main` delivery, use the updated build/profile
-instructions in [V0 integration](extended-gem5-v0.md). The commands below describe
-the older supplier snapshot (`util/pim`) and must not be used unchanged for the
-new fork (`libpim`). Both paths require target execution evidence.
-
-The user verified the stock x86 FS session, including both FP16 outputs and guest worker shutdown. The next checkpoint runs those same projections through the RISC-V instruction-emitting libpim build. A file fixture allows the gem5 team to validate this step independently of its guest networking and boot-script integration.
-
-On the build host, start in the NDP repository root. Set `PIM_ROOT` to the absolute path of the complete supplier fork with its Ramulator layout generator dependencies. Install SCons and a Linux RISC-V C/C++20 cross toolchain supporting rv64gcv_zicbom and static lp64d libraries.
-
-```sh
-export PIM_ROOT=/absolute/path/to/full-gem5-fork
-bundle="$PWD/build/riscv"
-mkdir -p "$bundle"
-python3 "$PIM_ROOT/util/pim/gen_pim_layout.py" --standard lpddr6 \
-    --num-fmt fp16 --acc-fmt fp32 -o "$bundle/lpddr6_fp16.h"
-make -C tools/gem5/pim_kernel riscv-fp16 PIM_ROOT="$PIM_ROOT" \
-    PIM_LAYOUT="$bundle/lpddr6_fp16.h" CROSS_COMPILE=riscv64-linux-gnu-
-python3 tools/gem5/pim_kernel/target_fixture.py "$bundle"
-file "$bundle/pim-kernel-worker-fp16"
-```
-
-Expect a statically linked 64-bit RISC-V ELF. Use the generated header for the simulator's `--layout` with `--memory lpddr6 --num-fmt fp16 --acc-fmt fp32`. Match the generated channel geometry and OS memory reservation. In the target FS image, provision the ELF with execute permission plus requests.bin and expected.bin in one directory. Use the team's guest startup hook or shell after boot. The guest needs access to /dev/mem and the layout's reserved FS window outside System RAM. From that directory run:
-
-```sh
-PIM_MODE=fs ./pim-kernel-worker-fp16 < requests.bin > actual.bin &&
-    cmp expected.bin actual.bin && echo K4_TARGET_NUMERIC_PASS
-```
-
-The comparison covers the profile, all handle operations, both GEMV results and the close acknowledgement. Capture the ELF and layout hashes, simulator config, guest exit status, and PIM controller trace or counter deltas over this workload. Identify the all-bank MAC activity for the two launches before accepting device execution. The exact counter names depend on the target fork. After target acceptance, connect the same worker stream to the external client and proceed to K5 kernel coverage.
+The current build uses the delivered fork's `libpim` directory. Generate one
+FP16/FP32 profile for the native archive, worker and simulator. See the
+[build procedure](extended-gem5-v0.md) and [target verification record](extended-gem5-validation-plan.md).

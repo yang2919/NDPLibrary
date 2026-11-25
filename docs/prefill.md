@@ -107,7 +107,7 @@ an explicit fairness/throughput tradeoff. Decode scheduling remains token-wise.
 cmake --build build-python
 ctest --test-dir build-python --output-on-failure
 PYTHONPATH=build-python/python python examples/python/llama_prefill.py \
-    /path/to/SmolLM2-135M --worker build/pim-kernel-worker-fp16
+    /path/to/SmolLM2-135M --worker build/extended-gem5/pim-kernel-worker-fp16
 ```
 
 On the pinned SmolLM2-135M checkpoint (30 layers, two workers), the four-token

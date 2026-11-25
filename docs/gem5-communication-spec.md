@@ -359,8 +359,8 @@ a second planner. Native checks remain assistant-owned; FS runs remain user-owne
 
 ## Sources and implementation references
 
-- [AiMX Platform Whitepaper](</Users/yang/Library/CloudStorage/OneDrive-개인/Reference/Whitepaper/AiMX Platform Whitepaper.pdf>), PDF pp. 7, 10–15, 22 (architectural observations above).
-- [AiM FPGA Software Whitepaper](</Users/yang/Library/CloudStorage/OneDrive-개인/Reference/Whitepaper/AiM FPGA Software Whitepaper.pdf>), PDF pp. 4, 8 (earlier ISR/DMA/runtime structure).
+- *AiMX Platform Whitepaper*, PDF pp. 7, 10–15, 22 (architectural observations above).
+- *AiM FPGA Software Whitepaper*, PDF pp. 4, 8 (earlier ISR/DMA/runtime structure).
 - [Existing command schema](../src/l1/ndp/command.hpp), [codec](../src/l1/ndp/codec.cpp), [wire IDs](../src/l1/ndp/codec.hpp).
 - [Execution protocol](../src/l1/gem5/execution.cpp), [framing](../src/l1/gem5/metadata.cpp), [process lifetime](../src/l1/gem5/backend.cpp).
 - [Layer data flow](layer-data-flow.md), [target handoff](gem5-extension-handoff.md).

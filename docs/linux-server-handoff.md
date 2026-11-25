@@ -20,8 +20,7 @@ scp /path/to/ndp-linux-handoff.tar USER@SERVER:ndp-transfer/
 The workspace archive contains uncommitted edits, untracked supplier sources
 and scripts. The bundle carries committed history. The evidence archive is a
 point-in-time copy of compact validation logs. An active simulator's RAM,
-sockets and Docker process stay on the Mac. Restart the current FS case on
-Linux. To collect results that arrive later, rerun the packer after the Mac
+sockets and Docker process stay on the Mac. Start a fresh run to reproduce a case on Linux. To collect results that arrive later, rerun the packer after the Mac
 run finishes or copy its final logs separately.
 
 ## Restore into a new workspace on Linux
@@ -71,26 +70,9 @@ your host user. The runner defaults to CPUs 0 and 1. On a server with scheduler
 affinity restrictions, set CPUSET to allowed CPU IDs and JOBS to their count
 when invoking the runner (for example CPUSET=8-9 JOBS=2).
 
-## Resume the current validation case
+## Check the restored environment
 
-The recorded SE Atomic/Timing decoder and two-device checks passed. At handoff,
-extended FS external GEMV still needs a paired client and server verdict with
-the revised close path. The earlier Mac port conflict was host-local. Choose
-a free port on Linux. Run terminal A from the restored project root:
-
-```sh
-PORT=45241 STAGE=FSSTREAM FS_CASE=gemv ./tools/gem5/pim_kernel/run.sh
-```
-
-After NDP_FS_HOST_READY, run terminal B from the same project root:
-
-```sh
-source build/venv/bin/activate
-export PYTHONPATH="$PWD/build-python/python"
-python tools/gem5/pim_kernel/verify_remote.py --port 45241 --label NDP_FS
-```
-
-Require both NDP_FS_CLIENT_PASS and NDP_FS_EXTERNAL_PASS case=gemv. Preserve
-the new run directory under build/extended-gem5. Continue with chain, partial,
-lost, then decoder using the [FS validation manual](extended-gem5-fs-client.md).
-When using port 45241, pass `--port 45241` to every client.
+For a two-terminal FS smoke check, follow the GEMV case in the
+[external FS client guide](extended-gem5-fs-client.md). Activate the Linux venv
+in terminal B and use the same free port in both terminals. Keep the new run
+directory to distinguish Linux results from the [recorded Mac runs](extended-gem5-validation-plan.md).

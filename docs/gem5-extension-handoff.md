@@ -1,5 +1,7 @@
 # NDP–gem5 packet specification v2
 
+This specification covers the `gem5` command transport. The extended simulator’s `gem5_pim` backend uses the [libpim kernel interface](gem5-pim-kernel-plan.md).
+
 [한국어](gem5-extension-handoff.ko.md)
 
 The NDP Library and its peer use the same packet structure for requests and replies. This specification defines the bytes exchanged and when an operation is complete. The team implementing the peer chooses how to receive and execute commands.

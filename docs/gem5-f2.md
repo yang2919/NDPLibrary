@@ -106,7 +106,7 @@ verification.
 
 ## User validation
 
-Follow the standalone [F2 user verification guide](gem5-f2-user-verification.md)
+Follow the standalone [F2 user verification guide](stock-gem5-verification.md)
 for prerequisites, execution commands, expected output and failure reporting.
 The user has reported completion of this FS verification.
 

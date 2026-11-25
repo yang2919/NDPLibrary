@@ -512,7 +512,7 @@ error even after a successful recovery. Failed initial allocation requires a new
   Explicit eager PyTorch integration is available through the optional adapter.
 
 For object ownership details, see [Object abstractions](library-abstractions.md).
-For old-to-new API names and the buffer contract, see [Generic L2 migration](generic-l2.md).
+See the [object contracts](library-abstractions.md) for Session, Tensor and DeviceBuffer ownership.
 For Python bindings and their limits, see [PyTorch integration](pytorch-integration.md).
 
 ### Matmul scaling before output conversion

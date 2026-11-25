@@ -7,7 +7,7 @@ No gem5 source changes or NDP device model are introduced.
 
 F3, F4 and F5 FS verification have been reported complete by the user.
 Implementation/native validation and user-reported FS acceptance are tracked
-separately. The assistant has not independently inspected the FS logs. See [F5 user verification](gem5-f5-user-verification.md).
+separately. The assistant has not independently inspected the FS logs. See [F5 user verification](stock-gem5-verification.md).
 
 ## Example and execution path
 

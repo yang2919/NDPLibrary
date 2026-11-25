@@ -1,13 +1,9 @@
 # V0: libpim build and FP16 profile integration
 
-Update: the subsequent step built and statically inspected both RISC-V ELF files
-using a dedicated Docker cross compiler. See [target smoke verification](extended-gem5-smoke-verification.md)
-for the artifacts and user-run SE/FS procedure. The original V0 observations
-below describe the native-only checkpoint; simulator profile agreement is still pending.
-
-The default worker build now uses `gem5-ParallelPIM-main/libpim`. Outputs are
-isolated under `build/extended-gem5`; the previous snapshot and worker under
-`build/pim-kernel-worker-fp16` remain available as the old reference baseline.
+The worker builds against `gem5-ParallelPIM-main/libpim` and writes artifacts
+under `build/extended-gem5`. This procedure establishes the native build
+and profile. For simulator execution see the [SE/FS procedure](extended-gem5-smoke-verification.md)
+and [verified results](extended-gem5-validation-plan.md).
 
 ## Generate and build
 
