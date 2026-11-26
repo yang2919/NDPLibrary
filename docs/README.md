@@ -23,6 +23,8 @@ Start with the [project quickstart](../README.md) for the native build and decod
 - [Extended gem5 PIM: one-command Docker verification](extended-gem5-smoke-verification.md)
 - [External Python client and a persistent SE worker](gem5-se-external-client.md)
 - [External Python client on extended gem5 FS](extended-gem5-fs-client.md)
+- [Qwen3 16-device serving experiment (한국어)](qwen3-serving-16.ko.md)
+- [PIM command supply bottleneck experiment (한국어)](pim-command-supply-experiment.ko.md)
 - [Qwen3 single-layer decode timing](qwen3-layer-timing.md)
 - [Resume extended gem5 development on Linux](linux-server-handoff.md)
 - [Kernel launch plan for the RISC-V gem5 PIM backend](gem5-pim-kernel-plan.md)

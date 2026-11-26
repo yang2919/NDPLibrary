@@ -73,13 +73,13 @@ struct Expert {
     }
 };
 
-void run(bool moe, int context) {
-    const int hidden = moe ? 2048 : 5120, heads = moe ? 32 : 64, kvheads = moe ? 4 : 8;
+void run(bool moe, int context, int tp) {
+    const int hidden = moe ? 2048 : 5120, heads = (moe ? 32 : 64) / tp, kvheads = (moe ? 4 : 8) / tp;
     const int kv = kvheads * head;
     Projection qproj(heads*head, hidden), kproj(kv, hidden), vproj(kv, hidden);
     Projection oproj(hidden, heads*head);
     std::vector<Expert> experts;
-    for (int e = 0; e < (moe ? 128 : 1); ++e) experts.emplace_back(hidden, moe ? 768 : 25600);
+    for (int e = 0; e < (moe ? 128 : 1); ++e) experts.emplace_back(hidden, (moe ? 768 : 25600) / tp);
     std::unique_ptr<Projection> router;
     if (moe) router = std::make_unique<Projection>(128, hidden);
     Row residual(hidden, .125f), keys(context*kv, .03125f), values(context*kv, .0625f);
@@ -126,18 +126,21 @@ void run(bool moe, int context) {
     }
     m5_dump_stats(0, 0);
     std::cout << "QWEN_ROI_DONE " << (moe ? "moe" : "dense") << " context=" << context
-              << " checksum=" << std::accumulate(residual.begin(), residual.end(), 0.f) << '\n';
+              << " tp=" << tp << " checksum=" << std::accumulate(residual.begin(), residual.end(), 0.f) << '\n';
 }
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 3) throw std::runtime_error("expected dense|moe and context length");
+        if (argc != 3 && argc != 4) throw std::runtime_error("expected dense|moe and context length");
         std::string model(argv[1]);
         int context = std::stoi(argv[2]);
         if ((model != "dense" && model != "moe") || context < 1 || context > 4096)
             throw std::runtime_error("invalid model or context (1..4096)");
+        const int tp = argc == 4 ? std::stoi(argv[3]) : 1;
+        if (tp < 1 || (model == "moe" ? 4 : 8) % tp != 0)
+            throw std::runtime_error("TP must divide the KV head count");
         check(pim_init(nullptr));
-        run(model == "moe", context);
+        run(model == "moe", context, tp);
         pim_finalize();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

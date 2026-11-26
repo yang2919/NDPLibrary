@@ -129,7 +129,146 @@ an explicit Python decoder example. This is an eager, inference-only adapter, no
 native torch device. `NdpTensor` is an opaque device handle rather than a subclass
 of torch.Tensor. L2 has no PyTorch dependency.
 
-## Convert one Linear for inference
+## Convert selected projections for inference
+
+Load the checkpoint into an eval-mode CPU FP16 model. Pass a registered module
+path to `ndp.to_ndp` to select a single Linear or the projections in a subtree.
+An explicit empty path selects the model's children.
+
+```python
+target = "model.layers.0.mlp.down_proj"
+for entry in ndp.plan_to_ndp(model, target=target):
+    print(entry.path, entry.rule or entry.reason)
+
+with ndp.to_ndp(model, target=target) as accelerated, torch.inference_mode():
+    output_ids = accelerated.generate(**inputs, do_sample=False, max_new_tokens=16)
+```
+
+The preview opens no session and uploads no weights. The conversion uses one
+owned `ndp` session and prepares all eligible weights before replacing any
+modules. The scope yields the same model and restores the original module objects
+on exit, including when inference raises. Use the model on the entering thread
+and load checkpoints before entering the scope. Only unmodified, bias-free
+`torch.nn.Linear` projections with materialized CPU FP16 weights are eligible.
+The preview reports exclusions such as shared modules, tied weight storage and
+hooks. Entering a scope with no eligible projections raises an error.
+
+In `mode="projections"`, the default, single-vector projections use PIM and
+multi-vector inputs use CPU Linear. Transformers manages generation and its KV
+cache. With Transformers 4.57.6 and eager Llama attention, selecting all three
+eligible Q/K/V projections under the attention module automatically shares their
+input upload for single-token calls. The preview reports `llama_shared_qkv` at
+the attention path. Prefill, non-eager attention, and calls that need projection
+forward hooks use the regular projection path. The attention object and
+`state_dict` paths are preserved.
+
+For a larger subtree, choose a backend and capacity that fit the prepared
+weights. The default `ndp` profile fits SmolLM2's first `down_proj`. The entire
+first block requires a larger profile via `config`, or a backend with more
+capacity. Set `backend="gem5_pim", worker=worker_path` on `to_ndp` to use a native
+FP16 libpim worker. Reproduce the comparison with the pinned SmolLM2 checkpoint
+on the functional backend from the repository root:
+
+```sh
+PYTHONPATH="$PWD/build-python/python" python examples/python/llama_decode.py "$CHECKPOINT" \
+    --verify-to-ndp --tokens 504 3575 282 4649 314 7042 30 --max-new-tokens 4
+```
+
+Expect `NDP_TO_NDP_PASS` for the first-layer `down_proj` and for all seven
+first-block projections. Each case checks exact logits for prefill and two decode
+steps, greedy generation IDs, and original module restoration against manual
+conversion on the same backend.
+
+## Keep a Llama SwiGLU MLP resident
+
+With Transformers 4.57.6, select an unmodified Llama SwiGLU MLP directly in
+`resident` mode. The original model still accepts ordinary CPU inputs and
+manages attention, generation, and KV cache.
+
+```python
+with ndp.to_ndp(model, target="model.layers.0.mlp", mode="resident",
+                backend="functional") as accelerated, torch.inference_mode():
+    output_ids = accelerated.generate(**inputs, do_sample=False, max_new_tokens=16)
+```
+
+The conversion checks PIM Linear, PNM Linear, SiLU and multiply before
+preparing weights. Each of the three weights is uploaded once and prepared for
+both projection engines. A single input row uses PIM GEMV. Multiple rows,
+such as a multi-token prompt, use PNM GEMM. SiLU and multiply use PNM in both
+cases. Gate, up and the product remain resident. Each MLP call uploads one
+input tensor and downloads one output tensor. The runtime checks the actual
+input extent against backend and memory limits during execution.
+
+SmolLM2-135M's complete first MLP exceeds the default `ndp` profile's physical
+layout capacity. Use the functional backend as shown above, pass a larger
+`config` to the `ndp` backend, or select the native worker.
+
+`plan_to_ndp(..., mode="resident")` reports `llama_resident_swiglu` for an
+eligible MLP. Pass its module path, for example `model.layers.0.mlp`. The scope
+restores the original module on exit. Keep module and hook registrations fixed
+during the scope. For lower-level use, `ndp.nn.SwiGLU(..., prefill=True)` enables
+the same multi-row behavior.
+
+```sh
+PYTHONPATH="$PWD/build-python/python" python examples/python/llama_decode.py "$CHECKPOINT" \
+    --verify-resident-mlp --tokens 504 3575 282 4649 314 7042 30 --max-new-tokens 4
+```
+
+Expect `NDP_RESIDENT_MLP_PASS`. The example compares the resident output with
+CPU FP16 on identical MLP activations from prefill and two cached decode calls.
+It checks one upload and one download per call, compares greedy IDs, and verifies
+module restoration. Add `--worker` with the native FP16 libpim worker path to
+exercise the native worker backend.
+
+## Keep a Llama decoder block and its KV cache resident
+
+With Transformers 4.57.6, select one Llama decoder layer in `resident` mode.
+Use eager attention, an unpadded batch of one, and contiguous positions with
+the model's standard unscaled split-half RoPE. `max_tokens` bounds the number
+of tokens processed per request, including the prompt. If omitted, the limit is
+128 tokens or the model's context limit, whichever is smaller.
+
+```python
+with ndp.to_ndp(model, target="model.layers.0", mode="resident",
+                max_tokens=128, backend="functional") as accelerated, torch.inference_mode():
+    output_ids = accelerated.generate(**inputs, do_sample=False, max_new_tokens=16)
+```
+
+The selected block keeps normalization, RoPE, GQA, SwiGLU, residuals and its K/V
+buffers within the runtime. Multi-token prompt chunks use PNM GEMM and
+single-token calls use PIM GEMV for projections. Within a chunk, each query
+attends through its own position. The block uploads one input activation and
+downloads one output activation per call.
+
+`generate()` uses a Transformers `DynamicCache`. For explicit `forward` calls,
+start each request with a fresh `DynamicCache` or with `use_cache=True` and no
+prior cache. Pass the returned `past_key_values` on subsequent calls. Each
+request holds a distinct NDP allocation for the selected layer, and the other
+layers use their own Transformers cache entries. Length queries such as
+`get_seq_length()` work for the selected layer. The scope restores the original
+decoder and releases the device cache buffers on exit. Start fresh after an
+inference failure or when entering another conversion scope.
+
+This path supports greedy generation and causal forward calls. Static or
+offloaded caches, padding, custom masks or position offsets, batch expansion,
+cache rearrangement or export, and attention or hidden-state recording are
+outside its supported interface. Choose a profile that fits the packed weights,
+KV capacity and activations. The first SmolLM2 block exceeds the default `ndp`
+profile. The functional backend, a larger `ndp` config, or the native FP16
+libpim worker can be used for the example below.
+
+```sh
+PYTHONPATH="$PWD/build-python/python" python examples/python/llama_decode.py "$CHECKPOINT" \
+    --verify-resident-block --tokens 504 3575 282 4649 314 7042 30 --max-new-tokens 4
+```
+
+Expect `NDP_RESIDENT_BLOCK_PASS` for two prompt chunks followed by two cached
+decode calls. The example checks cache positions, one upload and one download
+per call, block outputs against CPU FP16, and greedy generation IDs. It reports
+full-model logits differences separately. Add `--worker` with the native FP16
+libpim worker path for the same checks on that backend.
+
+## Convert one Linear with an explicit session
 
 Load an eval-mode CPU FP16 model, then convert a bias-free projection once per session.
 
@@ -461,7 +600,14 @@ python3 examples/python/llama_decode.py "$CHECKPOINT" --verify-routing --reuse-q
     --tokens 504 3575 282 4649 314 7042 30 --worker "$PWD/build/extended-gem5/pim-kernel-worker-fp16"
 ```
 
-Omit --worker for the functional backend. The example uses the eager Llama attention implementation for Transformers 4.57.6. It compares the independent and shared-input paths in the same Session with fresh caches and the same prepared weights. Both backends measured five activation uploads, seven PIM projections and seven downloads for each cached token and for a fresh one-token prompt. Five-token prefill measured zero for all three counts. All 21 single-token projection outputs and all four logits tensors matched the independent path exactly. The profiler counts ndp::pim_projection around each individual GEMV, including the three inside ndp::qkv_pim. The same optional adapter can be selected with --verify-greedy --reuse-qkv.
+Omit `--worker` for the functional backend. The example compares independent
+projections, manual Q/K/V sharing, and `to_ndp()` with fresh caches. Each shared
+path uses five activation uploads, seven PIM projections and seven downloads
+per cached token and per fresh one-token prompt. Five-token prefill has zero of
+all three. It checks exact equality of all 21 projection outputs and four logits
+tensors across the three paths. `ndp::pim_projection` counts individual GEMVs,
+including the three inside `ndp::qkv_pim`. Use `--verify-to-ndp` to compare the
+generated IDs with the independent projection path.
 
 ## Place consecutive decoder layers on independent devices
 

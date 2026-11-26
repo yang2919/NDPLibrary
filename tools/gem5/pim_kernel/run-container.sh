@@ -18,6 +18,8 @@ make -C "$scripts" profile
 if [[ "$STAGE" == QWEN ]]; then
     case "$MODEL" in moe|dense) ;; *) echo 'MODEL must be moe or dense' >&2; exit 2 ;; esac
     [[ "$CONTEXT" =~ ^[1-9][0-9]{0,3}$ && "$CONTEXT" -le 4096 ]]
+    tp=${TP:-1}
+    case "$MODEL:$tp" in dense:8|*:1|*:2|*:4) ;; *) echo "unsupported TP for $MODEL" >&2; exit 2 ;; esac
     binary="$RUN_DIR/qwen-roi"
     make -C "$scripts" riscv-fp16 WORKER_SOURCE=qwen_roi.cpp RISCV_WORKER="$binary" \
         EXTRA_SOURCE="$fork/util/m5/src/abi/riscv/m5op.S"
@@ -26,9 +28,9 @@ if [[ "$STAGE" == QWEN ]]; then
     timeout --kill-after=30s "$ROI_TIMEOUT" "$gem5" --outdir="$RUN_DIR/sim" \
         "$fork/configs/example/gem5_library/riscv-pim.py" --mode se --cpu timing --cores 1 \
         --memory lpddr6 --channels 16 --policy RoRaBaChCo --num-fmt fp16 --acc-fmt fp32 \
-        --layout "$RUN_DIR/lpddr6_fp16.h" --binary "$binary" --args "$MODEL" "$CONTEXT" \
+        --layout "$RUN_DIR/lpddr6_fp16.h" --binary "$binary" --args "$MODEL" "$CONTEXT" "$tp" \
         2>&1 | tee "$RUN_DIR/simulation.log"
-    python3 "$scripts/qwen_stats.py" "$RUN_DIR" "$MODEL" "$CONTEXT" | tee "$RUN_DIR/result.txt"
+    python3 "$scripts/qwen_stats.py" "$RUN_DIR" "$MODEL" "$CONTEXT" "$tp" | tee "$RUN_DIR/result.txt"
     exit 0
 fi
 make -C "$scripts" riscv-fp16

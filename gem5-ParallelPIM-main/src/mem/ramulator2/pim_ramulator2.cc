@@ -931,8 +931,11 @@ PimRamulator2::tryDispatch(unsigned ch)
         pimSystem->sequencer(int(ch))->submit(
             job,
             [this, ch](uint64_t id) {
-                if (Entry *x = findEntry(ch, id))
+                if (Entry *x = findEntry(ch, id)) {
+                    DPRINTF(PIM, "last command %s (seq %llu) channel %u\n",
+                            pimOpName(x->d.op), id, ch);
                     x->state = State::LastCommand;
+                }
             },
             [this, ch](uint64_t id, Ramulator::Clk_t clk) {
                 if (Entry *x = findEntry(ch, id)) {

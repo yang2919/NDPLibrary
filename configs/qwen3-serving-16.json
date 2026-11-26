@@ -1,0 +1,82 @@
+{
+  "profile": "qwen3-serving-16-v2",
+  "device_count": 16,
+  "data_parallel_replicas": 1,
+  "device": {
+    "memory_gib": 32,
+    "channels": 16,
+    "operand": "fp16",
+    "gemv_accumulator": "fp32"
+  },
+  "models": {
+    "dense": {
+      "checkpoint": "Qwen/Qwen3-32B",
+      "layers": 64,
+      "hidden": 5120,
+      "query_heads": 64,
+      "kv_heads": 8,
+      "head_dim": 128,
+      "ffn": 25600
+    },
+    "moe": {
+      "checkpoint": "Qwen/Qwen3-30B-A3B",
+      "layers": 48,
+      "experts": 128,
+      "top_k": 8,
+      "hidden": 2048,
+      "query_heads": 32,
+      "kv_heads": 4,
+      "head_dim": 128,
+      "expert_ffn": 768
+    }
+  },
+  "workload": {
+    "sequence_length_including_current_and_resident_batch": [
+      [
+        1024,
+        128
+      ],
+      [
+        2048,
+        64
+      ],
+      [
+        4096,
+        32
+      ]
+    ],
+    "microbatch_per_stage": 1,
+    "decode_regime": "fixed_context_closed_loop",
+    "warmup_rounds": 2,
+    "measurement_rounds": 8
+  },
+  "pp_tp_candidates": [
+    [
+      16,
+      1
+    ],
+    [
+      8,
+      2
+    ],
+    [
+      4,
+      4
+    ],
+    [
+      2,
+      8
+    ],
+    [
+      1,
+      16
+    ]
+  ],
+  "kv_policy": "whole_heads_no_replication",
+  "fabric": {
+    "cent_revision": "4c2aac6ce6aa3ddfe1944fc9c5d656b90d3fc7d2",
+    "endpoint_lanes": 4,
+    "shared_host_uplink_GBps_per_direction": 64,
+    "transfer_model": "CENT vector_latency per host-device message; host-staged unicast"
+  }
+}

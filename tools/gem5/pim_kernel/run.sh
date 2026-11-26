@@ -8,7 +8,12 @@ cpu=${CPU:-timing}
 case "$suite" in smoke|boundary|lifecycle|chain|decoder|decoder_state) ;; *) echo "SUITE must be smoke, boundary, lifecycle, chain, decoder or decoder_state" >&2; exit 2 ;; esac
 case "$cpu" in timing|atomic) ;; *) echo "CPU must be timing or atomic" >&2; exit 2 ;; esac
 if [[ "$stage" != SE && "$stage" != STREAM && "$cpu" != timing ]]; then echo "CPU=atomic is supported only for SE" >&2; exit 2; fi
-case "$stage" in PREPARE|SE|FS|STREAM|FSSTREAM|QWEN) ;; *) echo 'STAGE must be PREPARE, SE, FS, STREAM, FSSTREAM or QWEN' >&2; exit 2 ;; esac
+case "$stage" in PREPARE|SE|FS|STREAM|FSSTREAM|QWEN|SUPPLY) ;; *) echo 'STAGE must be PREPARE, SE, FS, STREAM, FSSTREAM, QWEN or SUPPLY' >&2; exit 2 ;; esac
+container_script=run-container.sh
+if [[ "$stage" == SUPPLY ]]; then
+    container_script=supply-container.sh
+    case "${SUPPLY_CASE:-small}" in small|gate) ;; *) echo 'SUPPLY_CASE must be small or gate' >&2; exit 2 ;; esac
+fi
 default_boot_timeout=3600
 if [[ "$stage" == FSSTREAM ]]; then default_boot_timeout=10800; fi
 jobs=${JOBS:-2}
@@ -38,12 +43,12 @@ fi
 # Affinity bounds nproc in the supplier's kernel build as well as SCons jobs.
 docker run --rm --init "$@" --cpuset-cpus="${CPUSET:-0-$((jobs - 1))}" \
     -v "$root:/workspace" -v ndp-pim-linux-data:/var/lib/ndp-pim \
-    -e "MODEL=${MODEL:-moe}" -e "CONTEXT=${CONTEXT:-16}" -e "ROI_TIMEOUT=${ROI_TIMEOUT:-0}" \
+    -e "SUPPLY_CASE=${SUPPLY_CASE:-small}" -e "TP=${TP:-1}" -e "MODEL=${MODEL:-moe}" -e "CONTEXT=${CONTEXT:-16}" -e "ROI_TIMEOUT=${ROI_TIMEOUT:-0}" \
     -e GEM5_RESOURCE_DIR=/var/lib/ndp-pim/resources \
     -e "NDP_HOST_PORT=${PORT:-45240}" -e "FS_CASE=${FS_CASE:-gemv}" -e "STAGE=$stage" -e "JOBS=$jobs" -e "SUITE=$suite" -e "CPU=$cpu" \
     -e "BOOT_TIMEOUT=${BOOT_TIMEOUT:-$default_boot_timeout}" -e "SE_TIMEOUT=${SE_TIMEOUT:-180}" \
     -e "CONNECT_TIMEOUT=${CONNECT_TIMEOUT:-0}" \
     -e "REBUILD_KERNEL=${REBUILD_KERNEL:-0}" \
     -e "RUN_DIR=/workspace/build/extended-gem5/$(basename "$run_dir")" \
-    ndp-pim-validation:24.04 bash /workspace/tools/gem5/pim_kernel/run-container.sh
+    ndp-pim-validation:24.04 bash "/workspace/tools/gem5/pim_kernel/$container_script"
 cat "$run_dir/result.txt"

@@ -5,16 +5,17 @@ from pathlib import Path
 import re
 
 
-def summarize(run, model, context):
+def summarize(run, model, context, tp=1):
     sim = run / 'sim'
-    marker = f'QWEN_ROI_DONE {model} context={context} checksum='
-    if not any(line.startswith(marker) for line in (sim / 'program.out').read_text().splitlines()):
+    marker = f'QWEN_ROI_DONE {model} context={context} tp={tp} checksum='
+    markers = (marker, f'QWEN_ROI_DONE {model} context={context} checksum=') if tp == 1 else (marker,)
+    if not any(line.startswith(markers) for line in (sim / 'program.out').read_text().splitlines()):
         raise ValueError('missing completed layer marker')
     blocks = re.findall(r'Begin Simulation Statistics -+\n(.*?)\n-+ End Simulation Statistics',
                         (sim / 'stats.txt').read_text(), re.S)
     if len(blocks) != 3:
         raise ValueError(f'expected attention, FFN, and exit dumps; got {len(blocks)}')
-    report = {'model': model, 'context_including_current_token': context, 'batch': 1, 'layers': 1,
+    report = {'model': model, 'context_including_current_token': context, 'tp': tp, 'batch': 1, 'layers': 1,
               'operand': 'fp16', 'accumulator': 'fp32', 'cpu': 'timing', 'phases': {}}
     for name, block in zip(('attention', 'ffn'), blocks):
         stats = dict(re.findall(r'^([^\s#]+)\s+([\d.eE+-]+)\s', block, re.M))
@@ -38,8 +39,9 @@ if __name__ == '__main__':
     parser.add_argument('run', type=Path)
     parser.add_argument('model', choices=('moe', 'dense'))
     parser.add_argument('context', type=int)
+    parser.add_argument('tp', type=int, nargs='?', default=1)
     args = parser.parse_args()
-    report = summarize(args.run, args.model, args.context)
+    report = summarize(args.run, args.model, args.context, args.tp)
     output = json.dumps(report, indent=2)
     (args.run / 'roi.json').write_text(output + '\n')
     print(output)

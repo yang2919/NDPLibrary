@@ -67,3 +67,4 @@ class DeviceGroup:
 
 
 from . import _dispatch, llm, nn, serving, pipeline
+from ._conversion import plan_to_ndp, to_ndp

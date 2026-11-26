@@ -49,6 +49,7 @@
 #include "debug/ExecFaulting.hh"
 #include "debug/HtmCpu.hh"
 #include "debug/Mwait.hh"
+#include "debug/PIM.hh"
 #include "debug/SimpleCPU.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
@@ -266,6 +267,9 @@ TimingSimpleCPU::handleReadPacket(PacketPtr pkt)
 
     const RequestPtr &req = pkt->req;
 
+    if (pkt->isPim())
+        DPRINTF(PIM, "cpu attempt %s at %#x\n",
+                pimOpName(pkt->req->getPimOp()), pkt->getAddr());
     // hardware transactional memory
     // sanity check
     if (req->isHTMCmd()) {
@@ -508,6 +512,9 @@ TimingSimpleCPU::handleWritePacket()
     SimpleThread* thread = t_info.thread;
 
     const RequestPtr &req = dcache_pkt->req;
+    if (dcache_pkt->isPim())
+        DPRINTF(PIM, "cpu attempt %s at %#x\n",
+                pimOpName(dcache_pkt->req->getPimOp()), dcache_pkt->getAddr());
     if (req->isLocalAccess()) {
         Cycles delay = req->localAccessor(thread->getTC(), dcache_pkt);
         new IprEvent(dcache_pkt, this, clockEdge(delay));
@@ -1172,6 +1179,9 @@ TimingSimpleCPU::DcachePort::recvReqRetry()
     assert(cpu->dcache_pkt != NULL);
     assert(cpu->_status == DcacheRetry);
     PacketPtr tmp = cpu->dcache_pkt;
+    if (tmp->isPim())
+        DPRINTF(PIM, "cpu retry %s at %#x\n",
+                pimOpName(tmp->req->getPimOp()), tmp->getAddr());
     if (tmp->senderState) {
         // This is a packet from a split access.
         SplitFragmentSenderState * send_state =

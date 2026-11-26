@@ -3,7 +3,8 @@ from dataclasses import dataclass
 import threading
 import weakref
 import torch
-from . import Engine, OpOptions, LayoutPolicy, Session, DeviceGroup
+from . import (DeviceGroup, Engine, LayoutPolicy, NdpError, OpAttributes, OpKind,
+               OperationSpec, OpOptions, Session, TensorDesc)
 from .llm import prepare_weight
 
 
@@ -28,6 +29,8 @@ def _module_runtime(runtime, options):
 
 class NdpLinear(torch.nn.Module):
     """Keep checkpoint buffers on CPU and prepare a separate resident weight once."""
+
+    _prefill_options = None
 
     def __init__(self, session, weight, bias=None, engine=Engine.PNM):
         super().__init__()
@@ -83,7 +86,10 @@ class NdpLinear(torch.nn.Module):
             if self.bias.is_inference():
                 self.bias = self._checkpoint_copy(self.bias)
         resident = self.session.upload(self.weight.detach())
-        prepared = prepare_weight(self.session, resident, engines=[self.options.engine])
+        engines = [self.options.engine]
+        if self._prefill_options is not None:
+            engines.append(self._prefill_options.engine)
+        prepared = prepare_weight(self.session, resident, engines=engines)
         bias = None if self.bias is None else self.session.upload(self.bias.detach())
         self._prepared, self._bias = prepared, bias
         self._checkpoint_refs = (weakref.ref(self.weight),
@@ -127,7 +133,10 @@ class NdpLinear(torch.nn.Module):
 
     def forward_ndp(self, x):
         self._check_checkpoint()
-        return self.session.linear(x, self._prepared.tensor(), self.options, self._bias)
+        options = self.options
+        if self._prefill_options is not None and x.shape[0] > 1:
+            options = self._prefill_options
+        return self.session.linear(x, self._prepared.tensor(), options, self._bias)
 
     def forward(self, x):
         """Convenience CPU boundary; use forward_ndp for resident layer chains."""
@@ -152,6 +161,14 @@ class Linear(NdpLinear):
 
     def __init__(self, runtime, weight):
         super().__init__(runtime, weight, engine=Engine.PIM)
+
+    @property
+    def in_features(self):
+        return self.weight.shape[1]
+
+    @property
+    def out_features(self):
+        return self.weight.shape[0]
 
     @classmethod
     def from_float(cls, module, runtime=None, **backend_options):
@@ -195,10 +212,14 @@ def project_qkv(x, q, k, v):
         return torch.ops.ndp.qkv_pim(x, q._packed, k._packed, v._packed)
     return tuple(torch.nn.functional.linear(x, layer.weight) for layer in (q, k, v))
 
-class SwiGLU(torch.nn.Module):
-    """Run gate, up, SiLU, multiply and down as one single-token decode module."""
+class _PrefillLinear(Linear):
+    _prefill_options = OpOptions(Engine.PNM, LayoutPolicy.RequirePrepared)
 
-    def __init__(self, gate_proj, up_proj, down_proj, *, runtime=None, **backend_options):
+
+class SwiGLU(torch.nn.Module):
+    """Run gate, up, SiLU, multiply and down with resident intermediates."""
+
+    def __init__(self, gate_proj, up_proj, down_proj, *, prefill=False, runtime=None, **backend_options):
         super().__init__()
         projections = (gate_proj, up_proj, down_proj)
         if any(type(p) is not torch.nn.Linear or p.training or p.bias is not None
@@ -207,17 +228,45 @@ class SwiGLU(torch.nn.Module):
         if up_proj.weight.shape != gate_proj.weight.shape or down_proj.in_features != gate_proj.out_features:
             raise ValueError("Incompatible SwiGLU projection dimensions")
         session = _module_runtime(runtime, backend_options)
+        self._prefill = prefill
+        projection = Linear
+        if prefill:
+            self._check_prefill_support(session, gate_proj, down_proj)
+            projection = _PrefillLinear
         self.gate_proj, self.up_proj, self.down_proj = (
-            Linear.from_float(p, runtime=session) for p in projections
+            projection.from_float(p, runtime=session) for p in projections
         )
         self.eval()
 
+    @staticmethod
+    def _check_prefill_support(session, gate_proj, down_proj):
+        # Check both routes before uploading weights. L2 validates the actual prompt extent at submission.
+        gate_weight = TensorDesc(list(gate_proj.weight.shape))
+        down_weight = TensorDesc(list(down_proj.weight.shape))
+        for rows, engine in ((1, Engine.PIM), (2, Engine.PNM)):
+            hidden = TensorDesc([rows, gate_proj.in_features])
+            intermediate = TensorDesc([rows, gate_proj.out_features])
+            operations = (
+                (OpKind.Linear, engine, [hidden, gate_weight]),
+                (OpKind.SiLU, Engine.PNM, [intermediate]),
+                (OpKind.Mul, Engine.PNM, [intermediate, intermediate]),
+                (OpKind.Linear, engine, [intermediate, down_weight]),
+            )
+            for kind, operation_engine, inputs in operations:
+                try:
+                    session.query_operation(OperationSpec(kind, operation_engine, inputs))
+                except NdpError as error:
+                    error.args = (f"{operation_engine.name} {kind.name} for {rows} row(s) failed ({error})",)
+                    raise
+
     def forward(self, x):
         self.gate_proj._validate_input(x)
-        if not _is_single_vector(x):
+        if not self._prefill and not _is_single_vector(x):
             raise ValueError("SwiGLU expects one decode token with rank 1, 2 or 3")
+        if x.numel() == 0:
+            raise ValueError("SwiGLU expects a nonempty input")
         session = self.gate_proj.session
-        resident = session.upload(x.reshape(1, -1))
+        resident = session.upload(x.reshape(-1, x.shape[-1]))
         result = session.download(self.forward_ndp(resident))
         return result.reshape(*x.shape[:-1], self.down_proj.weight.shape[0])
 
@@ -326,7 +375,7 @@ class _ResidentRMSNorm(torch.nn.Module):
 class LlamaDecodeBlock(torch.nn.Module):
     """Single-sequence FP16 Llama decoder layer with resident GQA history and SwiGLU."""
 
-    def __init__(self, source, *, max_tokens, runtime=None, **backend_options):
+    def __init__(self, source, *, max_tokens, runtime=None, _prefill=False, _inv_freq=None, **backend_options):
         super().__init__()
         attn = source.self_attn
         config = attn.config
@@ -353,21 +402,65 @@ class LlamaDecodeBlock(torch.nn.Module):
             raise ValueError("Llama norm or MLP width does not match hidden_size")
         self.max_tokens = max_tokens
         self.session = s = _module_runtime(runtime, backend_options)
+        if _prefill:
+            self._check_prefill_support(source)
         self.input_layernorm = _ResidentRMSNorm(source.input_layernorm, s)
         self.post_attention_layernorm = _ResidentRMSNorm(source.post_attention_layernorm, s)
+        projection = _PrefillLinear if _prefill else Linear
         self.self_attn = torch.nn.ModuleDict({
-            name: Linear.from_float(getattr(attn, name), runtime=s)
+            name: projection.from_float(getattr(attn, name), runtime=s)
             for name in ("q_proj", "k_proj", "v_proj", "o_proj")
         })
         mlp = source.mlp
-        self.mlp = SwiGLU(mlp.gate_proj, mlp.up_proj, mlp.down_proj, runtime=s)
+        self.mlp = SwiGLU(mlp.gate_proj, mlp.up_proj, mlp.down_proj, prefill=_prefill, runtime=s)
         # Llama rotates pairs (d, d + head_dim/2). Fold the minus sign into the table once.
-        inv = 1 / config.rope_theta ** (torch.arange(0, self.dim, 2, dtype=torch.float32) / self.dim)
-        phase = torch.outer(torch.arange(max_tokens, dtype=torch.float32), inv)
-        self._sin = s.upload(torch.cat((-phase.sin(), phase.sin()), dim=-1).half())
-        self._cos = s.upload(phase.cos().repeat(1, 2).half())
+        inv = (_inv_freq.float() if _inv_freq is not None else
+               1 / config.rope_theta ** (torch.arange(0, self.dim, 2, dtype=torch.float32, device="cpu") / self.dim))
+        phase = torch.outer(torch.arange(max_tokens, dtype=torch.float32, device="cpu"), inv)
+        sine = phase.sin().half()
+        cosine = phase.cos().repeat(1, 2).half()
+        self._sin = s.upload(torch.cat((-sine, sine), dim=-1))
+        self._cos = s.upload(cosine)
+        if _inv_freq is not None:
+            self._host_rope = (cosine, sine.repeat(1, 2))
         self.reset_history()
         self.eval()
+
+    def _check_prefill_support(self, source):
+        session = self.session
+
+        def check(kind, inputs, engine=Engine.PNM, attributes=OpAttributes()):
+            try:
+                session.query_operation(OperationSpec(kind, engine, inputs, attributes))
+            except NdpError as error:
+                shapes = [tensor.shape for tensor in inputs]
+                error.args = (f"{engine.name} {kind.name} with shapes {shapes} failed ({error})",)
+                raise
+
+        for rows, engine in ((1, Engine.PIM), (2, Engine.PNM)):
+            hidden = TensorDesc([rows, self.width])
+            for name in ("q_proj", "k_proj", "v_proj", "o_proj"):
+                weight = TensorDesc(list(getattr(source.self_attn, name).weight.shape))
+                check(OpKind.Linear, [hidden, weight], engine)
+            for layer_norm in (source.input_layernorm, source.post_attention_layernorm):
+                norm = OpAttributes()
+                norm.epsilon = layer_norm.variance_epsilon
+                check(OpKind.RMSNorm, [hidden, TensorDesc([self.width])], attributes=norm)
+            check(OpKind.Add, [hidden, hidden])
+            check(OpKind.Mul, [hidden, hidden])
+        head = TensorDesc([2, self.dim])
+        scores = TensorDesc([1, 2])
+        check(OpKind.Transpose, [head])
+        check(OpKind.Matmul, [TensorDesc([1, self.dim]), TensorDesc([self.dim, 2])])
+        check(OpKind.Softmax, [scores])
+        check(OpKind.Matmul, [scores, head])
+        gather = OpAttributes()
+        gather.shape = [2, self.dim]
+        gather.indices = list(range(2*self.dim))
+        check(OpKind.Gather, [head], attributes=gather)
+        reshape = OpAttributes()
+        reshape.shape = [2, 1, self.dim]
+        check(OpKind.Reshape, [head], attributes=reshape)
 
     def reset_history(self):
         self._cache = None
@@ -379,10 +472,12 @@ class LlamaDecodeBlock(torch.nn.Module):
 
     def _rotate(self, tensor, heads, position):
         s = self.session
-        shape = [1, heads, self.dim]
-        table_indices = list(range(position*self.dim, (position+1)*self.dim)) * heads
-        partners = [h*self.dim + (d + self.dim//2) % self.dim
-                    for h in range(heads) for d in range(self.dim)]
+        rows = tensor.shape[0]
+        shape = [rows, heads, self.dim]
+        table_indices = [p*self.dim+d for p in range(position, position+rows)
+                         for _ in range(heads) for d in range(self.dim)]
+        partners = [h*self.dim+(d+self.dim//2) % self.dim
+                    for h in range(rows*heads) for d in range(self.dim)]
         direct = s.mul(s.reshape(tensor, shape), s.gather(self._cos, table_indices, shape))
         cross = s.mul(s.gather(tensor, partners, shape), s.gather(self._sin, table_indices, shape))
         return s.add(direct, cross)
@@ -391,6 +486,24 @@ class LlamaDecodeBlock(torch.nn.Module):
         NdpLinear._validate(x, "input")
         if tuple(x.shape) != (1, 1, self.width) or x.requires_grad:
             raise ValueError("Expected one inference token [1, 1, hidden_size]")
+
+    def _chunk_qkv(self, resident, position):
+        norm = self.input_layernorm(resident)
+        q, k, v = (self.self_attn[name].forward_ndp(norm) for name in ("q_proj", "k_proj", "v_proj"))
+        return self._rotate(q, self.heads, position), self._rotate(k, self.kv_heads, position), v
+
+    def _finish_chunk(self, resident, cache, position, qkv, trace=None):
+        s = self.session
+        q, k, v = qkv
+        cache.append(k, s.reshape(v, [resident.shape[0], self.kv_heads, self.dim]))
+        context = s.reshape(cache.attention(q, position), list(resident.shape))
+        attention = self.self_attn["o_proj"].forward_ndp(context)
+        residual = s.add(resident, attention)
+        mlp = self.mlp.forward_ndp(self.post_attention_layernorm(residual))
+        output = s.add(residual, mlp)
+        if trace is not None:
+            trace.update(attention=attention, mlp=mlp)
+        return output
 
     def forward_ndp(self, resident, trace=None):
         """Consume and return a [1, hidden_size] FP16 handle in this block's session."""
@@ -405,20 +518,9 @@ class LlamaDecodeBlock(torch.nn.Module):
         position = self._cache.scheduled_length()
         if position >= self.max_tokens:
             raise ValueError("KV history is full; reset_history() starts a new sequence")
-        norm = self.input_layernorm(resident)
-        q, k, v = (self.self_attn[name].forward_ndp(norm) for name in ("q_proj", "k_proj", "v_proj"))
-        q = self._rotate(q, self.heads, position)
-        k = self._rotate(k, self.kv_heads, position)
+        qkv = self._chunk_qkv(resident, position)
         try:
-            self._cache.append(k, s.reshape(v, [1, self.kv_heads, self.dim]))
-            context = s.reshape(self._cache.attention(q, position), [1, self.width])
-            attention = self.self_attn["o_proj"].forward_ndp(context)
-            residual = s.add(resident, attention)
-            mlp = self.mlp.forward_ndp(self.post_attention_layernorm(residual))
-            output = s.add(residual, mlp)
-            if trace is not None:
-                trace.update(attention=attention, mlp=mlp)
-            return output
+            return self._finish_chunk(resident, self._cache, position, qkv, trace)
         except Exception:
             self._needs_reset = True
             raise
